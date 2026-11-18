@@ -27,7 +27,9 @@ global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
 global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
 if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap)|(hop))$", &m))
     reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : m[3] != "" ? 5 : 6   ; 5 = 3-finger tap, 6 = 4-finger tap
-if !reqProfile                          ; a real start (login / restart): say so at once
+; /quiet = started by the login launcher (start-tools.ahk), which shows its own message
+global QUIET := A_Args.Length && A_Args[1] = "/quiet"
+if (!reqProfile && !QUIET)              ; a real start (restart by hand): say so at once
     Toast("Mouse Zones is starting…", "Mice and trackpad follow your settings in a moment")
 DetectHiddenWindows(true)
 for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
@@ -98,7 +100,8 @@ DllCall("SetWinEventHook", "uint", 0x000A, "uint", 0x000B, "ptr", 0, "ptr", move
 A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Log("start" (A_Args.Length ? " " A_Args[1] : "") "  (" Round(A_TickCount / 1000) " s after Windows started)")
 ; (setup takes well under a second; keep "starting…" readable, then say it's ready)
-SetTimer(() => Toast("Mouse Zones ready ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? " · mouse swap on" : ""), 3000), -1000)
+if !QUIET
+    SetTimer(() => Toast("Mouse Zones ready ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? " · mouse swap on" : ""), 3000), -1000)
 
 OnRawInput(wParam, lParam, msg, hwnd) {
     global active, lastDev, followerOn, lastFree, ownerT, tpDev

@@ -48,6 +48,7 @@ global followerOn := false          ; the trackpad moved since the last real-mou
 global lastFree := ""               ; last mouse with no screen of its own (the USB mouse)
 global tpProfile := 1
 global tpScreens := []              ; profile 3: the trackpad's screens, left to right
+global ownerT := 0                  ; time of the last event from whatever is driving the cursor
 
 LoadZones()
 LoadSettings()
@@ -73,7 +74,7 @@ A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Tip("Mouse Zones running - " zone.Count " mouse(s) assigned - trackpad " PROFILES[tpProfile])
 
 OnRawInput(wParam, lParam, msg, hwnd) {
-    global active, lastDev, followerOn, lastFree
+    global active, lastDev, followerOn, lastFree, ownerT
     PMA()
     hdr := 8 + 2 * A_PtrSize
     size := 0
@@ -92,20 +93,24 @@ OnRawInput(wParam, lParam, msg, hwnd) {
     btn := NumGet(buf, hdr + 4, "ushort")                   ; button / wheel flags
     if (!btn && !dx && !dy && !(flags & 1))
         return                              ; empty report (some Bluetooth mice send these when idle)
-    mag := btn ? 999 : Abs(dx) + Abs(dy)
+    ; No device handle = the precision trackpad (or injected input). Touch / pen carry the
+    ; 0xFF5157xx signature: that's a touch screen, leave it alone.
+    if (dev = "(none)" && (NumGet(buf, hdr + 20, "uint") & 0xFFFFFF00) = 0xFF515700)
+        return
     lastDev := dev
     if !enabled
         return
 
     if follow.Has(dev) {
-        if (tpProfile = 3 && dev != "(none)") {
-            Drive(dev, tpScreens, dx, mag)  ; own screens, own spot
+        if (tpProfile = 3) {
+            Drive(dev, tpScreens, dx, dy, btn)   ; own screens, own spot
             return
         }
-        if (tpProfile = 1 && dev != "(none)" && lastFree != "" && !zone.Has(lastFree)) {
-            Drive(lastFree, [], 0, mag)     ; acts as the USB mouse
+        if (tpProfile = 1 && lastFree != "" && !zone.Has(lastFree)) {
+            Drive(lastFree, [], dx, dy, btn)     ; acts as the USB mouse
             return
         }
+        ownerT := A_TickCount                    ; the trackpad is what's moving now
         ; profile 2: no spot of its own. Carries on from wherever the last mouse
         ; left the cursor, goes anywhere, and counts as part of that mouse.
         if !followerOn {
@@ -121,25 +126,27 @@ OnRawInput(wParam, lParam, msg, hwnd) {
         return
     }
 
-    Drive(dev, AreaOf(dev), dx, mag)
+    Drive(dev, AreaOf(dev), dx, dy, btn)
 }
 
 ; dev takes (or keeps) the cursor. area = the screens it may use, left to right ([] = anywhere).
-; mag = how much this event moved (999 = a click / scroll).
-Drive(dev, area, dx, mag := 999) {
-    global active, followerOn, lastFree
-    static acc := Map(), accT := Map()
-    if (dev != active) {
-        ; take over only on a real move (4+ counts within 0.3 s) or a click/scroll,
-        ; so sensor jitter from a mouse lying on the desk can't steal the cursor
-        if (!accT.Has(dev) || A_TickCount - accT[dev] > 300)
-            acc[dev] := 0
+Drive(dev, area, dx, dy := 0, btn := 1) {
+    global active, followerOn, lastFree, ownerT
+    static accX := Map(), accY := Map(), accN := Map(), accT := Map()
+    if (dev != active || followerOn) {
+        ; Take over only on a real move in one direction, or a click / scroll. A mouse lying
+        ; still sends jitter (+1/-1, fast on 1000 Hz receivers): it cancels out in the sum.
+        ; Need more while another device is moving right now.
+        if (!accT.Has(dev) || A_TickCount - accT[dev] > 250)
+            accX[dev] := 0, accY[dev] := 0, accN[dev] := 0
         accT[dev] := A_TickCount
-        acc[dev] += mag
-        if (acc[dev] < 4)
+        accX[dev] += dx, accY[dev] += dy, accN[dev] += 1
+        need := (A_TickCount - ownerT < 150) ? 40 : 12
+        if (!btn && (Abs(accX[dev]) + Abs(accY[dev]) < need || accN[dev] < 3))
             return
-        acc[dev] := 0
+        accX[dev] := 0, accY[dev] := 0, accN[dev] := 0
     }
+    ownerT := A_TickCount
     if !zone.Has(dev) && !follow.Has(dev)
         lastFree := dev
     cur := CursorPos()
@@ -193,7 +200,7 @@ Drive(dev, area, dx, mag := 999) {
 
 AreaOf(d) {
     if follow.Has(d)
-        return (tpProfile = 3 && d != "(none)") ? tpScreens : []
+        return tpProfile = 3 ? tpScreens : []
     return zone.Has(d) ? [zone[d]] : []
 }
 

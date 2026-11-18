@@ -31,7 +31,7 @@ The assignments are saved and come back after a restart.
 | Ctrl+Alt+P | Pause / resume |
 
 ## Trackpads
-Move the trackpad, then press **Ctrl+Alt+F** to mark it as a trackpad (press again to undo). Input with no device handle (some precision touchpads, injected input) always counts as a trackpad and uses profile 2.
+Move the trackpad, then press **Ctrl+Alt+F** to mark it as a trackpad (press again to undo). Input with no device handle counts as a trackpad too: Windows precision touchpads send their input that way. Touch-screen and pen input (signature `0xFF5157xx`) is ignored.
 
 A trackpad has three profiles. Switch between them from the tray menu, from **right-click the desktop → Trackpad profile** (the script adds this entry itself, and ● marks the active profile), or by running `mouse-zones.ahk /trackpad1`, `/trackpad2` or `/trackpad3`:
 
@@ -62,7 +62,7 @@ Windows' own shortcut works too: **Win+Shift+←/→** moves the active window t
 - Window moves are detected with a `SetWinEventHook` on `EVENT_SYSTEM_MOVESIZESTART`/`END`. Resizes are ignored. Maximized or snapped windows are left alone.
 - The thread runs per-monitor DPI aware, so the coordinates stay correct on screens with different scaling.
 
-A mouse takes over the cursor only on a real move (4+ counts within 0.3 s) or a click/scroll. Empty or jitter reports, which some Bluetooth mice send while lying still, are ignored. Each mouse's spot is saved in `mouse-zones.ini`, so it survives a restart. Every switch is written to `mouse-zones.log`.
+A device takes over the cursor only on a click/scroll, or on a real move in one direction: a net 12+ counts over 3+ reports within 0.25 s, or 40+ while another device is moving at that moment. A mouse lying still can send empty reports or back-and-forth jitter (fast on 1000 Hz receivers). The empty ones are ignored and the jitter cancels out in the sum, so neither can steal the cursor. Each mouse's spot is saved in `mouse-zones.ini`, so it survives a restart. Every switch is written to `mouse-zones.log`.
 
 ## Limits
 - There is still one cursor. You can't use both mice at the same moment.

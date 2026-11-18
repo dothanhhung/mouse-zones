@@ -18,6 +18,7 @@ Persistent
 
 global INI := A_ScriptDir "\mouse-zones.ini"
 global MSG_CMD := 0x5C58
+global toastGui := 0, toastT1 := 0, toastT2 := 0
 global PROFILES := ["1. Default: follow the USB mouse", "2. Follow the latest mouse", "3. Screens 3 + 4 only"]
 global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 
@@ -31,7 +32,9 @@ for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     if (hw = A_ScriptHwnd)
         continue
     if reqProfile {
-        PostMessage(MSG_CMD, reqProfile, 0, , hw)
+        ; show at once that the menu click registered; the running copy then shows the result
+        Toast(reqProfile = 4 ? "Switching mouse…" : "Switching trackpad profile…", "One moment")
+        try SendMessage(MSG_CMD, reqProfile, 0, , hw, , , , 3000)
         ExitApp
     }
     WinClose(hw)                        ; plain start = replace the old copy
@@ -61,7 +64,16 @@ global cycleState := 0, cyclePrevProfile := 1, cyclePrevSwap := false   ; trackp
 LoadZones()
 LoadSettings()
 EnsureMenu()
-OnMessage(MSG_CMD, (w, *) => (SetTimer(() => (w = 4 ? ToggleSwap() : SetProfile(w)), -1), 1))
+OnMessage(MSG_CMD, RemoteCmd)
+
+RemoteCmd(w, *) {
+    static last := 0, lastT := 0
+    if (w = last && A_TickCount - lastT < 2000)
+        return 1                            ; menu clicked twice: don't toggle back
+    last := w, lastT := A_TickCount
+    SetTimer(() => (w = 4 ? ToggleSwap() : SetProfile(w)), -1)
+    return 1
+}
 
 ; Listen to all mice, even when this script has no focus (RIDEV_INPUTSINK).
 rid := Buffer(8 + A_PtrSize, 0)
@@ -257,18 +269,18 @@ QuadClick() {
         cyclePrevProfile := tpProfile, cyclePrevSwap := swapOn
         SetProfile(3, true)
         cycleState := 1
-        Tip("4 clicks: trackpad " PROFILES[3] "`n4 clicks again: + mouse swap")
+        Toast("4 clicks: trackpad " PROFILES[3] " ✓", "4 clicks again: + mouse swap", 2500)
     } else if (cycleState = 1) {
         if !swapOn
             ToggleSwap(true)
         cycleState := 2
-        Tip("4 clicks: " SWAPLABEL "`n4 clicks again: back to normal")
+        Toast("4 clicks: mouse swap ON ✓", "4 clicks again: back to normal", 2500)
     } else {
         SetProfile(cyclePrevProfile, true)
         if (swapOn != cyclePrevSwap)
             ToggleSwap(true)
         cycleState := 0
-        Tip("4 clicks: back to normal - trackpad " PROFILES[tpProfile] (swapOn ? ", swap on" : ""))
+        Toast("4 clicks: back to normal ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? ", swap on" : ""), 2500)
     }
     Log("4-click cycle -> step " cycleState)
 }
@@ -286,7 +298,7 @@ SetProfile(n, fromCycle := false) {
     followerOn := false
     DllCall("ClipCursor", "ptr", 0)
     UpdateMenus()
-    Tip("Trackpad: " PROFILES[n])
+    Toast("Trackpad profile ✓", PROFILES[n], 2000)
 }
 
 LoadSettings() {
@@ -353,7 +365,8 @@ ToggleSwap(fromCycle := false) {
     DllCall("ClipCursor", "ptr", 0)
     UpdateMenus()
     Log("swap " (swapOn ? "ON" : "OFF"))
-    Tip(swapOn ? 'Swapped: USB mouse on the 27", Bluetooth free' : 'Normal: Bluetooth mouse on the 27", USB free')
+    Toast(swapOn ? 'Swap ON ✓' : 'Swap OFF ✓'
+        , swapOn ? 'USB mouse on the 27", Bluetooth free' : 'Bluetooth mouse on the 27", USB free', 2200)
 }
 
 ; Desktop right-click menu "Trackpad profile" (sorts right after 0ClipStack) + tray menu.
@@ -613,6 +626,41 @@ Clip(z) {
 }
 
 PMA() => DllCall("SetThreadDpiAwarenessContext", "ptr", -4, "ptr")   ; real pixels on mixed-DPI screens
+
+; Small dark message in the bottom-right of the screen under the cursor. Never takes focus.
+; ms > 0 = hide after that long.
+Toast(title, sub := "", ms := 0) {
+    global toastGui, toastT1, toastT2
+    DllCall("SetThreadDpiAwarenessContext", "ptr", -2, "ptr")   ; system aware, like the Gui
+    if !toastGui {
+        toastGui := Gui("+AlwaysOnTop -Caption +ToolWindow +Border +E0x08000000")
+        toastGui.BackColor := "1F2937"
+        toastGui.MarginX := 16, toastGui.MarginY := 10
+        toastGui.SetFont("s11 bold cFFFFFF", "Segoe UI")
+        toastT1 := toastGui.AddText("w330")
+        toastGui.SetFont("s9 norm cD1D5DB", "Segoe UI")
+        toastT2 := toastGui.AddText("w330 y+2")
+    }
+    toastT1.Value := title, toastT2.Value := sub
+    CoordMode("Mouse", "Screen")
+    MouseGetPos(&mx, &my)
+    L := 0, T := 0, R := A_ScreenWidth, B := A_ScreenHeight
+    loop MonitorGetCount() {
+        MonitorGet(A_Index, &l, &t, &r, &b)
+        if (mx >= l && mx < r && my >= t && my < b) {
+            MonitorGetWorkArea(A_Index, &L, &T, &R, &B)
+            break
+        }
+    }
+    toastGui.Show("NoActivate Hide AutoSize")
+    toastGui.GetPos(, , &w, &h)
+    toastGui.Show("NoActivate x" (R - w - 20) " y" (B - h - 20))
+    SetTimer(ToastHide, ms > 0 ? -ms : 0)
+}
+
+ToastHide() {
+    try toastGui.Hide()
+}
 
 Tip(t) {
     ToolTip t

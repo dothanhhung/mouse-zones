@@ -615,9 +615,10 @@ SlideToOtherScreen(hwnd, s) {
     }
     if !best
         return
-    MonitorGetWorkArea(best, &L, &T, &R, &B)
-    nx := Max(L, Min(r[1], R - w))
-    ny := Max(T, Min(r[2], B - h))
+    ; (AHK names ignore case: R would overwrite r, the window rect, and wR the buffer wr)
+    MonitorGetWorkArea(best, &aL, &aT, &aR, &aB)
+    nx := Max(aL, Min(r[1], aR - w))
+    ny := Max(aT, Min(r[2], aB - h))
     wr := Buffer(16, 0)
     DllCall("GetWindowRect", "ptr", hwnd, "ptr", wr)
     DllCall("SetWindowPos", "ptr", hwnd, "ptr", 0
@@ -750,8 +751,8 @@ Toast(title, sub := "", ms := 0) {
     MouseGetPos(&mx, &my)
     L := 0, T := 0, R := A_ScreenWidth, B := A_ScreenHeight
     loop MonitorGetCount() {
-        MonitorGet(A_Index, &l, &t, &r, &b)
-        if (mx >= l && mx < r && my >= t && my < b) {
+        MonitorGet(A_Index, &ml, &mt, &mr, &mb)   ; not l/t/r/b: AHK names ignore case
+        if (mx >= ml && mx < mr && my >= mt && my < mb) {
             MonitorGetWorkArea(A_Index, &L, &T, &R, &B)
             break
         }

@@ -3,6 +3,7 @@
 ;
 ;   Ctrl+Alt+M  move a mouse onto a screen, then press: that mouse now owns that screen
 ;   Ctrl+Alt+U  unassign the mouse you moved last (it roams freely again)
+;   Ctrl+Alt+F  the device you moved last is a trackpad: no own spot, follows the last mouse (toggle)
 ;   Ctrl+Alt+P  pause / resume
 ;   Ctrl+Alt+Q  quit
 ; Assignments are saved in mouse-zones.ini next to this script.
@@ -18,6 +19,8 @@ global names := Map()     ; raw handle -> device name (cache)
 global active := ""       ; device name that owns the cursor now
 global lastDev := ""      ; device name that moved last
 global enabled := true
+global follow := Map("(none)", 1)   ; trackpads: follow the last mouse (ini [followers])
+global followerOn := false          ; the trackpad moved since the last real-mouse event
 
 LoadZones()
 
@@ -40,7 +43,7 @@ A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Tip("Mouse Zones running - " zone.Count " mouse(s) assigned")
 
 OnRawInput(wParam, lParam, msg, hwnd) {
-    global active, lastDev
+    global active, lastDev, followerOn
     PMA()
     hdr := 8 + 2 * A_PtrSize
     size := 0
@@ -57,34 +60,57 @@ OnRawInput(wParam, lParam, msg, hwnd) {
     if !enabled
         return
 
+    ; Trackpad (a "follower"): no spot of its own. It carries on from wherever the
+    ; last mouse left the cursor, goes anywhere, and counts as part of that mouse.
+    if follow.Has(dev) {
+        if !followerOn {
+            followerOn := true
+            if (active != "")
+                pos[active] := CursorPos()  ; the mouse's spot before the trackpad moved it
+        }
+        DllCall("ClipCursor", "ptr", 0)
+        return
+    }
+
     if (dev = active) {
+        if followerOn {                     ; back from the trackpad to the same mouse
+            followerOn := false
+            if zone.Has(dev) && !InZone(CursorPos(), zone[dev])
+                SetCur(ClampTo(pos.Has(dev) ? pos[dev] : Center(zone[dev]), zone[dev]))
+        }
         if zone.Has(dev)
             Clip(zone[dev])                 ; Windows drops the clip on some focus changes
         return
     }
 
     ; another mouse took over: remember where the old one left the cursor
-    if (active != "")
-        pos[active] := CursorPos()
+    ; (after trackpad use that is the trackpad's spot, unless it is off the old mouse's screen)
+    if (active != "") {
+        p := CursorPos()
+        if !(followerOn && zone.Has(active) && !InZone(p, zone[active]))
+            pos[active] := p
+    }
+    followerOn := false
     active := dev
 
     if zone.Has(dev) {
         z := zone[dev]
-        p := pos.Has(dev) ? pos[dev] : [(z[1] + z[3]) // 2, (z[2] + z[4]) // 2]
+        p := ClampTo(pos.Has(dev) ? pos[dev] : Center(z), z)
         Clip(z)
-        DllCall("SetCursorPos", "int", p[1], "int", p[2])
+        SetCur(p)
     } else {
         DllCall("ClipCursor", "ptr", 0)     ; unassigned mouse roams freely...
-        if (dev != "(none)" && pos.Has(dev)) ; ...but still gets its own spot back
-            DllCall("SetCursorPos", "int", pos[dev][1], "int", pos[dev][2])
+        if pos.Has(dev)                     ; ...but still gets its own spot back
+            SetCur(pos[dev])
     }
 }
 
 ^!m:: {
     global active
     PMA()
-    if (lastDev = "" || lastDev = "(none)") {
-        Tip("Move the mouse you want to assign first")
+    if (lastDev = "" || follow.Has(lastDev)) {
+        Tip(lastDev = "" ? "Move the mouse you want to assign first"
+            : "That's a trackpad (it follows the last mouse). Ctrl+Alt+F to make it a normal mouse")
         return
     }
     p := CursorPos()
@@ -104,6 +130,24 @@ OnRawInput(wParam, lParam, msg, hwnd) {
     }
     DllCall("ClipCursor", "ptr", 0)
     Tip("Mouse unassigned - it roams freely")
+}
+
+^!f:: {
+    if (lastDev = "" || lastDev = "(none)")
+        return
+    if follow.Has(lastDev) {
+        follow.Delete(lastDev)
+        try IniDelete(INI, "followers", lastDev)
+        Tip("Now a normal mouse (keeps its own spot)")
+    } else {
+        follow[lastDev] := 1
+        if zone.Has(lastDev) {
+            zone.Delete(lastDev)
+            try IniDelete(INI, "zones", lastDev)
+        }
+        IniWrite(1, INI, "followers", lastDev)
+        Tip("Now a trackpad: follows the last mouse")
+    }
 }
 
 ^!p:: {
@@ -210,7 +254,17 @@ LoadZones() {
         if r.Length = 4
             zone[SubStr(line, 1, eq - 1)] := [Integer(r[1]), Integer(r[2]), Integer(r[3]), Integer(r[4])]
     }
+    for line in StrSplit(IniRead(INI, "followers", , ""), "`n", "`r") {
+        eq := InStr(line, "=", , -1)
+        if eq
+            follow[SubStr(line, 1, eq - 1)] := 1
+    }
 }
+
+InZone(p, z) => p[1] >= z[1] && p[1] < z[3] && p[2] >= z[2] && p[2] < z[4]
+ClampTo(p, z) => [Max(z[1], Min(p[1], z[3] - 1)), Max(z[2], Min(p[2], z[4] - 1))]
+Center(z) => [(z[1] + z[3]) // 2, (z[2] + z[4]) // 2]
+SetCur(p) => DllCall("SetCursorPos", "int", p[1], "int", p[2])
 
 DevName(hDev) {
     if names.Has(hDev)

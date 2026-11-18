@@ -27,7 +27,13 @@ The assignments are saved and come back after a restart.
 |---|---|
 | Ctrl+Alt+M | The mouse you moved last now owns the screen under the cursor |
 | Ctrl+Alt+U | Unassign the mouse you moved last (it can go anywhere again) |
+| Ctrl+Alt+F | The device you moved last is a trackpad (toggle): see below |
 | Ctrl+Alt+P | Pause / resume |
+
+## Trackpads
+A trackpad has no spot of its own. It carries on from wherever the last mouse left the cursor and can go to any screen. It counts as part of that mouse, so when you pick that mouse up again it carries on from where the trackpad stopped. The one exception: if the mouse has its own screen and the trackpad left the cursor on another screen, the mouse jumps back to its own spot.
+
+Move the trackpad, then press **Ctrl+Alt+F** to mark it (press again to undo). Input with no device handle (some precision touchpads, injected input) always counts as a trackpad.
 | Ctrl+Alt+Q | Quit |
 
 ## Moving windows to another screen

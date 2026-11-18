@@ -74,7 +74,9 @@ OnRawInput(wParam, lParam, msg, hwnd) {
         Clip(z)
         DllCall("SetCursorPos", "int", p[1], "int", p[2])
     } else {
-        DllCall("ClipCursor", "ptr", 0)     ; unassigned mouse roams freely
+        DllCall("ClipCursor", "ptr", 0)     ; unassigned mouse roams freely...
+        if (dev != "(none)" && pos.Has(dev)) ; ...but still gets its own spot back
+            DllCall("SetCursorPos", "int", pos[dev][1], "int", pos[dev][2])
     }
 }
 

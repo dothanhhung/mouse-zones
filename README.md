@@ -51,6 +51,14 @@ swapB=<device key of the mouse that is normally free>
 ```
 The device keys are the ones written under `[zones]` / `[pos]`.
 
+### 4-click shortcut on the trackpad
+Click or tap the trackpad 4 times quickly (each within 0.45 s) to step through a cycle:
+1. trackpad profile 3;
+2. also the mouse swap on;
+3. back to how it was before the first step (the old trackpad profile, and the swap as it was).
+
+Choosing a profile or the swap from a menu ends the cycle. The clicks still reach whatever is under the cursor.
+
 Profile 3 reads its screens from `mouse-zones.ini`, ordered left to right (`L,T,R,B` in real pixels, separated by `|`):
 ```
 [settings]

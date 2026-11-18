@@ -56,6 +56,7 @@ global tpScreens := []              ; profile 3: the trackpad's screens, left to
 global ownerT := 0                  ; time of the last event from whatever is driving the cursor
 global baseZone := Map()            ; zones as saved; `zone` = after the swap
 global swapOn := false, swapA := "", swapB := ""   ; swap: A (normally zoned) <-> B (normally free)
+global cycleState := 0, cyclePrevProfile := 1, cyclePrevSwap := false   ; trackpad 4-click cycle
 
 LoadZones()
 LoadSettings()
@@ -107,6 +108,9 @@ OnRawInput(wParam, lParam, msg, hwnd) {
     lastDev := dev
     if !enabled
         return
+
+    if (follow.Has(dev) && (btn & 1))       ; trackpad left click / tap (RI_MOUSE_LEFT_BUTTON_DOWN)
+        CountClick()
 
     if follow.Has(dev) {
         if (tpProfile = 3) {
@@ -235,10 +239,46 @@ EdgeJump(area, i, p, dx) {
 
 MapY(y, a, b) => b[2] + Round((y - a[2]) * (b[4] - b[2]) / (a[4] - a[2]))
 
-SetProfile(n) {
-    global tpProfile, active, followerOn
+; 4 trackpad clicks/taps in a row (each within 0.45 s): step through the cycle
+;   1st: trackpad profile 3   2nd: + mouse swap on   3rd: back to how it was before
+CountClick() {
+    static n := 0, t := 0
+    n := (A_TickCount - t < 450) ? n + 1 : 1
+    t := A_TickCount
+    if (n >= 4) {
+        n := 0
+        SetTimer(QuadClick, -1)
+    }
+}
+
+QuadClick() {
+    global cycleState, cyclePrevProfile, cyclePrevSwap
+    if (cycleState = 0) {
+        cyclePrevProfile := tpProfile, cyclePrevSwap := swapOn
+        SetProfile(3, true)
+        cycleState := 1
+        Tip("4 clicks: trackpad " PROFILES[3] "`n4 clicks again: + mouse swap")
+    } else if (cycleState = 1) {
+        if !swapOn
+            ToggleSwap(true)
+        cycleState := 2
+        Tip("4 clicks: " SWAPLABEL "`n4 clicks again: back to normal")
+    } else {
+        SetProfile(cyclePrevProfile, true)
+        if (swapOn != cyclePrevSwap)
+            ToggleSwap(true)
+        cycleState := 0
+        Tip("4 clicks: back to normal - trackpad " PROFILES[tpProfile] (swapOn ? ", swap on" : ""))
+    }
+    Log("4-click cycle -> step " cycleState)
+}
+
+SetProfile(n, fromCycle := false) {
+    global tpProfile, active, followerOn, cycleState
     if (n < 1 || n > 3)
         return
+    if !fromCycle
+        cycleState := 0                     ; a manual choice ends the 4-click cycle
     tpProfile := n
     IniWrite(n, INI, "settings", "trackpad")
     if follow.Has(active)
@@ -287,8 +327,10 @@ ApplySwap() {
     }
 }
 
-ToggleSwap() {
-    global swapOn, active, followerOn, lastFree
+ToggleSwap(fromCycle := false) {
+    global swapOn, active, followerOn, lastFree, cycleState
+    if !fromCycle
+        cycleState := 0
     if (swapA = "" || swapB = "") {
         Tip("Swap: set swapA / swapB in mouse-zones.ini first")
         return

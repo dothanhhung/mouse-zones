@@ -22,7 +22,10 @@ global PROFILES := ["1. Default: follow the USB mouse", "2. Follow the latest mo
 global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 
 ; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
-global reqProfile := (A_Args.Length && RegExMatch(A_Args[1], "i)^/trackpad([123])$", &m)) ? Integer(m[1]) : 0
+global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
+global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
+if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap))$", &m))
+    reqProfile := m[1] != "" ? Integer(m[1]) : 4
 DetectHiddenWindows(true)
 for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     if (hw = A_ScriptHwnd)
@@ -35,7 +38,9 @@ for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     WinWaitClose(hw, , 3)
 }
 DetectHiddenWindows(false)
-if reqProfile
+if (reqProfile = 4)
+    IniWrite(IniRead(INI, "settings", "swap", 0) = 1 ? 0 : 1, INI, "settings", "swap")
+else if reqProfile
     IniWrite(reqProfile, INI, "settings", "trackpad")
 global zone := Map()      ; device name -> [L, T, R, B]
 global pos := Map()       ; device name -> [x, y] last cursor spot of that mouse
@@ -49,11 +54,13 @@ global lastFree := ""               ; last mouse with no screen of its own (the 
 global tpProfile := 1
 global tpScreens := []              ; profile 3: the trackpad's screens, left to right
 global ownerT := 0                  ; time of the last event from whatever is driving the cursor
+global baseZone := Map()            ; zones as saved; `zone` = after the swap
+global swapOn := false, swapA := "", swapB := ""   ; swap: A (normally zoned) <-> B (normally free)
 
 LoadZones()
 LoadSettings()
 EnsureMenu()
-OnMessage(MSG_CMD, (w, *) => (SetTimer(() => SetProfile(w), -1), 1))
+OnMessage(MSG_CMD, (w, *) => (SetTimer(() => (w = 4 ? ToggleSwap() : SetProfile(w)), -1), 1))
 
 ; Listen to all mice, even when this script has no focus (RIDEV_INPUTSINK).
 rid := Buffer(8 + A_PtrSize, 0)
@@ -259,6 +266,52 @@ LoadSettings() {
             if tpScreens[A_Index][1] > tpScreens[A_Index + 1][1] {
                 t := tpScreens[A_Index], tpScreens[A_Index] := tpScreens[A_Index + 1], tpScreens[A_Index + 1] := t
             }
+    global swapOn := IniRead(INI, "settings", "swap", 0) = 1
+    global swapA := IniRead(INI, "settings", "swapA", "")
+    global swapB := IniRead(INI, "settings", "swapB", "")
+    ApplySwap()
+}
+
+; zone = baseZone with the screens of swapA and swapB exchanged while the swap is on.
+ApplySwap() {
+    global zone := baseZone.Clone()
+    if !(swapOn && swapA != "" && swapB != "")
+        return
+    za := baseZone.Has(swapA) ? baseZone[swapA] : 0
+    zb := baseZone.Has(swapB) ? baseZone[swapB] : 0
+    for d, z in Map(swapA, zb, swapB, za) {
+        if z
+            zone[d] := z
+        else if zone.Has(d)
+            zone.Delete(d)
+    }
+}
+
+ToggleSwap() {
+    global swapOn, active, followerOn, lastFree
+    if (swapA = "" || swapB = "") {
+        Tip("Swap: set swapA / swapB in mouse-zones.ini first")
+        return
+    }
+    swapOn := !swapOn
+    IniWrite(swapOn ? 1 : 0, INI, "settings", "swap")
+    ; the two mice trade spots too, so the mouse that gets the screen starts where the other was
+    pa := pos.Has(swapA) ? pos[swapA] : 0, pb := pos.Has(swapB) ? pos[swapB] : 0
+    for d, p in Map(swapA, pb, swapB, pa) {
+        if p {
+            pos[d] := p
+            try IniWrite(p[1] "," p[2], INI, "pos", d)
+        } else if pos.Has(d)
+            pos.Delete(d)
+    }
+    ApplySwap()
+    lastFree := zone.Has(swapA) ? swapB : swapA    ; the free mouse (trackpad profile 1 follows it)
+    active := ""                                   ; next move: that mouse jumps to its spot
+    followerOn := false
+    DllCall("ClipCursor", "ptr", 0)
+    UpdateMenus()
+    Log("swap " (swapOn ? "ON" : "OFF"))
+    Tip(swapOn ? 'Swapped: USB mouse on the 27", Bluetooth free' : 'Normal: Bluetooth mouse on the 27", USB free')
 }
 
 ; Desktop right-click menu "Trackpad profile" (sorts right after 0ClipStack) + tray menu.
@@ -271,10 +324,12 @@ EnsureMenu() {
         RegWrite("Top", "REG_SZ", RKEY, "Position")
         for i, label in PROFILES
             RegWrite(cmd i, "REG_SZ", RKEY "\shell\" i "profile\command")
+        RegWrite('"' A_AhkPath '" "' A_ScriptFullPath '" /swap', "REG_SZ", RKEY "\shell\4profile\command")
     }
     A_TrayMenu.Add()
     for i, label in PROFILES
         A_TrayMenu.Add("Trackpad " label, ((n, *) => SetProfile(n)).Bind(i))
+    A_TrayMenu.Add(SWAPLABEL, (*) => ToggleSwap())
     UpdateMenus()
 }
 
@@ -283,6 +338,8 @@ UpdateMenus() {
         try RegWrite((i = tpProfile ? "● " : "") label, "REG_SZ", RKEY "\shell\" i "profile", "MUIVerb")
         try (i = tpProfile) ? A_TrayMenu.Check("Trackpad " label) : A_TrayMenu.Uncheck("Trackpad " label)
     }
+    try RegWrite((swapOn ? "● " : "") SWAPLABEL, "REG_SZ", RKEY "\shell\4profile", "MUIVerb")
+    try swapOn ? A_TrayMenu.Check(SWAPLABEL) : A_TrayMenu.Uncheck(SWAPLABEL)
 }
 
 ^!m:: {
@@ -293,9 +350,14 @@ UpdateMenus() {
             : "That's a trackpad (it follows the last mouse). Ctrl+Alt+F to make it a normal mouse")
         return
     }
+    if swapOn {
+        Tip("Turn the mouse swap (4) off first")
+        return
+    }
     p := CursorPos()
     z := MonitorRect(p[1], p[2])
     zone[lastDev] := z
+    baseZone[lastDev] := z
     pos[lastDev] := p
     IniWrite(z[1] "," z[2] "," z[3] "," z[4], INI, "zones", lastDev)
     active := lastDev
@@ -304,8 +366,13 @@ UpdateMenus() {
 }
 
 ^!u:: {
+    if swapOn {
+        Tip("Turn the mouse swap (4) off first")
+        return
+    }
     if zone.Has(lastDev) {
         zone.Delete(lastDev)
+        try baseZone.Delete(lastDev)
         try IniDelete(INI, "zones", lastDev)
     }
     DllCall("ClipCursor", "ptr", 0)
@@ -323,6 +390,7 @@ UpdateMenus() {
         follow[lastDev] := 1
         if zone.Has(lastDev) {
             zone.Delete(lastDev)
+            try baseZone.Delete(lastDev)
             try IniDelete(INI, "zones", lastDev)
         }
         IniWrite(1, INI, "followers", lastDev)
@@ -434,6 +502,7 @@ LoadZones() {
         if r.Length = 4
             zone[SubStr(line, 1, eq - 1)] := [Integer(r[1]), Integer(r[2]), Integer(r[3]), Integer(r[4])]
     }
+    global baseZone := zone.Clone()
     for line in StrSplit(IniRead(INI, "followers", , ""), "`n", "`r") {
         eq := InStr(line, "=", , -1)
         if eq

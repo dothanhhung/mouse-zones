@@ -25,8 +25,8 @@ global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 ; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
 global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
 global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
-if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap))$", &m))
-    reqProfile := m[1] != "" ? Integer(m[1]) : 4
+if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap))$", &m))
+    reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : 5   ; 5 = same as the 3-finger tap
 DetectHiddenWindows(true)
 for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     if (hw = A_ScriptHwnd)
@@ -43,6 +43,8 @@ for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
 DetectHiddenWindows(false)
 if (reqProfile = 4)
     IniWrite(IniRead(INI, "settings", "swap", 0) = 1 ? 0 : 1, INI, "settings", "swap")
+else if (reqProfile = 5)
+    IniWrite(IniRead(INI, "settings", "trackpad", 1) = 3 ? 1 : 3, INI, "settings", "trackpad")
 else if reqProfile
     IniWrite(reqProfile, INI, "settings", "trackpad")
 global zone := Map()      ; device name -> [L, T, R, B]
@@ -60,6 +62,7 @@ global ownerT := 0                  ; time of the last event from whatever is dr
 global baseZone := Map()            ; zones as saved; `zone` = after the swap
 global swapOn := false, swapA := "", swapB := ""   ; swap: A (normally zoned) <-> B (normally free)
 global cycleState := 0, cyclePrevProfile := 1, cyclePrevSwap := false   ; trackpad 4-click cycle
+global tpDev := "(none)"            ; the trackpad's device name (last trackpad that moved)
 
 LoadZones()
 LoadSettings()
@@ -71,7 +74,7 @@ RemoteCmd(w, *) {
     if (w = last && A_TickCount - lastT < 2000)
         return 1                            ; menu clicked twice: don't toggle back
     last := w, lastT := A_TickCount
-    SetTimer(() => (w = 4 ? ToggleSwap() : SetProfile(w)), -1)
+    SetTimer(() => (w = 5 ? TpProfileToggle() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
     return 1
 }
 
@@ -81,7 +84,7 @@ NumPut("ushort", 1, "ushort", 2, "uint", 0x100, "ptr", A_ScriptHwnd, rid)
 if !DllCall("RegisterRawInputDevices", "ptr", rid, "uint", 1, "uint", rid.Size)
     MsgBox "Could not register for raw mouse input."
 OnMessage(0x00FF, OnRawInput)
-OnExit((*) => (DllCall("ClipCursor", "ptr", 0), 0))   ; must return 0: non-zero cancels the exit
+OnExit((reason, *) => (DllCall("ClipCursor", "ptr", 0), Log("exit (" reason ")"), 0))   ; must return 0: non-zero cancels the exit
 
 ; Window drag: when a window is dropped with 50%+ of it off its screen,
 ; move it fully onto the screen it was dragged toward.
@@ -94,7 +97,7 @@ A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Tip("Mouse Zones running - " zone.Count " mouse(s) assigned - trackpad " PROFILES[tpProfile])
 
 OnRawInput(wParam, lParam, msg, hwnd) {
-    global active, lastDev, followerOn, lastFree, ownerT
+    global active, lastDev, followerOn, lastFree, ownerT, tpDev
     PMA()
     hdr := 8 + 2 * A_PtrSize
     size := 0
@@ -125,6 +128,7 @@ OnRawInput(wParam, lParam, msg, hwnd) {
         CountClick()
 
     if follow.Has(dev) {
+        tpDev := dev
         if (tpProfile = 3) {
             Drive(dev, tpScreens, dx, dy, btn)   ; own screens, own spot
             return
@@ -462,6 +466,47 @@ UpdateMenus() {
 }
 
 ^!q:: ExitApp
+
+; Ctrl+Alt+Shift+F9 = the 3-finger trackpad tap (Windows Settings > Touchpad > Advanced gestures >
+; three-finger tap = this custom shortcut). Toggles trackpad profile 3 <-> 1, and moves the cursor
+; at once so the change is visible:
+;   -> 3: onto the trackpad's own spot on its screens (3 / 4)
+;   -> 1: onto the USB mouse's spot (profile 1 = the trackpad is the USB mouse)
+; The mice keep their own spots either way.
+^!+F9:: TpProfileToggle()
+
+TpProfileToggle() {
+    global active, followerOn, ownerT
+    PMA()
+    cur := CursorPos()
+    ; remember where whatever had the cursor left it
+    if (active != "" && !followerOn) {
+        pos[active] := cur
+        try IniWrite(cur[1] "," cur[2], INI, "pos", active)
+    }
+    goTo3 := tpProfile != 3
+    SetProfile(goTo3 ? 3 : 1)               ; also releases the clip and shows the message
+    PMA()                                   ; (the message switched the thread's DPI mode)
+    followerOn := false
+    if (goTo3 && tpScreens.Length) {
+        area := tpScreens
+        p := pos.Has(tpDev) ? pos[tpDev] : Center(area[1])
+        i := AreaIndex(area, p)
+        if !i
+            i := 1, p := Center(area[1])
+        active := tpDev
+        Clip(area[i])
+        SetCur(ClampTo(p, area[i]))
+    } else if (!goTo3 && lastFree != "" && !zone.Has(lastFree)) {
+        active := lastFree                  ; the trackpad now drives the USB mouse
+        DllCall("ClipCursor", "ptr", 0)
+        if pos.Has(lastFree)
+            SetCur(pos[lastFree])
+    }
+    try IniWrite(active, INI, "state", "active")
+    ownerT := A_TickCount
+    Log("3-finger tap: trackpad profile " (goTo3 ? 3 : 1) "  cursor " CursorPos()[1] "," CursorPos()[2])
+}
 
 OnMoveSize(hHook, event, hwnd, idObject, idChild, thread, time) {
     if idObject != 0

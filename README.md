@@ -51,6 +51,11 @@ swapB=<device key of the mouse that is normally free>
 ```
 The device keys are the ones written under `[zones]` / `[pos]`.
 
+### 3-finger tap: profile 3 ↔ 1
+**Ctrl+Alt+Shift+F9** switches the trackpad between profile 3 and profile 1, and moves the cursor at once so you see the change. Going to 3, the cursor jumps to the trackpad's own spot on its screens. Going to 1, it jumps to the free mouse's spot. The mice keep their own spots. `mouse-zones.ahk /tap` does the same from a command line.
+
+To put it on a 3-finger tap: pause Mouse Zones (Ctrl+Alt+P), go to Windows Settings → Bluetooth & devices → Touchpad → Advanced gestures → Three-finger tap → Custom shortcut, record Ctrl+Alt+Shift+F9, then resume with Ctrl+Alt+P.
+
 ### 4-click shortcut on the trackpad
 Click or tap the trackpad 4 times quickly (each within 0.45 s) to step through a cycle:
 1. trackpad profile 3;

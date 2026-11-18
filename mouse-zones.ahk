@@ -497,6 +497,7 @@ TpScreenToggle() {
         try IniWrite(cur[1] "," cur[2], INI, "pos", active)
     }
     if (tpProfile != 3) {
+        SaveTpHome(cur)
         SetProfile(3)
         PMA()
     }
@@ -519,6 +520,14 @@ TpScreenToggle() {
     Log("4-finger tap: screen " i " -> " j "  goto " target[1] "," target[2])
 }
 
+; Remember the trackpad's spot outside its own screens (screen 1 / 2), for the way back to profile 1.
+SaveTpHome(p) {
+    if (!tpScreens.Length || AreaIndex(tpScreens, p))
+        return                              ; already on screen 3 / 4: keep the older spot
+    pos["TRACKPAD-HOME"] := p
+    try IniWrite(p[1] "," p[2], INI, "pos", "TRACKPAD-HOME")
+}
+
 TpProfileToggle() {
     global active, followerOn, ownerT
     PMA()
@@ -529,6 +538,8 @@ TpProfileToggle() {
         try IniWrite(cur[1] "," cur[2], INI, "pos", active)
     }
     goTo3 := tpProfile != 3
+    if goTo3
+        SaveTpHome(cur)                     ; where the trackpad was on screen 1 / 2
     SetProfile(goTo3 ? 3 : 1)               ; also releases the clip and shows the message
     PMA()                                   ; (the message switched the thread's DPI mode)
     followerOn := false
@@ -541,10 +552,14 @@ TpProfileToggle() {
         active := tpDev
         Clip(area[i])
         SetCur(ClampTo(p, area[i]))
-    } else if (!goTo3 && lastFree != "" && !zone.Has(lastFree)) {
-        active := lastFree                  ; the trackpad now drives the USB mouse
+    } else if !goTo3 {
         DllCall("ClipCursor", "ptr", 0)
-        if pos.Has(lastFree)
+        if (lastFree != "" && !zone.Has(lastFree))
+            active := lastFree              ; the trackpad now drives the USB mouse
+        ; back to where the trackpad was before it went to screens 3 / 4
+        if pos.Has("TRACKPAD-HOME")
+            SetCur(pos["TRACKPAD-HOME"])
+        else if (lastFree != "" && pos.Has(lastFree))
             SetCur(pos[lastFree])
     }
     try IniWrite(active, INI, "state", "active")

@@ -54,7 +54,7 @@ The device keys are the ones written under `[zones]` / `[pos]`.
 ### 3- and 4-finger taps
 | Tap | Shortcut | What it does |
 |---|---|---|
-| 3 fingers | **Ctrl+Alt+Shift+3** (or F9) | Switches the trackpad between profile 3 and profile 1. Going to 3, the cursor jumps to the trackpad's own spot on its screens; going to 1, it jumps to the free mouse's spot |
+| 3 fingers | **Ctrl+Alt+Shift+3** (or F9) | Switches the trackpad between profile 3 and profile 1. Going to 3, the cursor jumps to the trackpad's own spot on its screens; going back to 1, it returns to where it was before it went there (saved as `TRACKPAD-HOME` under `[pos]`) |
 | 4 fingers | **Ctrl+Alt+Shift+4** (or F10) | Jumps the trackpad to the other of its two screens, back to its last spot there. Turns profile 3 on first if needed |
 
 The mice keep their own spots. `mouse-zones.ahk /tap` and `/hop` do the same from a command line.

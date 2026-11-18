@@ -88,52 +88,83 @@ OnRawInput(wParam, lParam, msg, hwnd) {
     dev := hDev ? DevName(hDev) : "(none)"  ; 0 = injected / some touchpads
     flags := NumGet(buf, hdr, "ushort")
     dx := (flags & 1) ? 0 : NumGet(buf, hdr + 12, "int")   ; MOUSE_MOVE_ABSOLUTE has no delta
+    dy := (flags & 1) ? 0 : NumGet(buf, hdr + 16, "int")
+    btn := NumGet(buf, hdr + 4, "ushort")                   ; button / wheel flags
+    if (!btn && !dx && !dy && !(flags & 1))
+        return                              ; empty report (some Bluetooth mice send these when idle)
+    mag := btn ? 999 : Abs(dx) + Abs(dy)
     lastDev := dev
     if !enabled
         return
 
     if follow.Has(dev) {
         if (tpProfile = 3 && dev != "(none)") {
-            Drive(dev, tpScreens, dx)       ; own screens, own spot
+            Drive(dev, tpScreens, dx, mag)  ; own screens, own spot
             return
         }
         if (tpProfile = 1 && dev != "(none)" && lastFree != "" && !zone.Has(lastFree)) {
-            Drive(lastFree, [], 0)          ; acts as the USB mouse
+            Drive(lastFree, [], 0, mag)     ; acts as the USB mouse
             return
         }
         ; profile 2: no spot of its own. Carries on from wherever the last mouse
         ; left the cursor, goes anywhere, and counts as part of that mouse.
         if !followerOn {
             followerOn := true
-            if (active != "")
-                pos[active] := CursorPos()  ; the mouse's spot before the trackpad moved it
+            if (active != "") {
+                p := CursorPos()            ; the mouse's spot before the trackpad moved it
+                pos[active] := p
+                try IniWrite(p[1] "," p[2], INI, "pos", active)
+            }
+            Log("trackpad " Short(dev) " starts at the spot of " Short(active))
         }
         DllCall("ClipCursor", "ptr", 0)
         return
     }
 
-    if !zone.Has(dev)
-        lastFree := dev
-    Drive(dev, AreaOf(dev), dx)
+    Drive(dev, AreaOf(dev), dx, mag)
 }
 
 ; dev takes (or keeps) the cursor. area = the screens it may use, left to right ([] = anywhere).
-Drive(dev, area, dx) {
-    global active, followerOn
+; mag = how much this event moved (999 = a click / scroll).
+Drive(dev, area, dx, mag := 999) {
+    global active, followerOn, lastFree
+    static acc := Map(), accT := Map()
+    if (dev != active) {
+        ; take over only on a real move (4+ counts within 0.3 s) or a click/scroll,
+        ; so sensor jitter from a mouse lying on the desk can't steal the cursor
+        if (!accT.Has(dev) || A_TickCount - accT[dev] > 300)
+            acc[dev] := 0
+        accT[dev] := A_TickCount
+        acc[dev] += mag
+        if (acc[dev] < 4)
+            return
+        acc[dev] := 0
+    }
+    if !zone.Has(dev) && !follow.Has(dev)
+        lastFree := dev
     cur := CursorPos()
     target := 0
     if (dev != active) {
-        ; remember where the old device left the cursor (after trackpad use that is the
-        ; trackpad's spot, unless the trackpad took it off the old device's screens)
-        if (active != "" && !(followerOn && !InArea(AreaOf(active), cur)))
+        ; remember where the old device left the cursor. After trackpad use (profile 2) its
+        ; spot was already saved when the trackpad started: the trackpad never changes it.
+        if (active != "" && !followerOn) {
             pos[active] := cur
+            try IniWrite(cur[1] "," cur[2], INI, "pos", active)   ; survives a restart
+        }
+        Log("switch " Short(active) " -> " Short(dev) "  left " cur[1] "," cur[2]
+            "  goto " (pos.Has(dev) ? pos[dev][1] "," pos[dev][2] : "-"))
         active := dev
+        try IniWrite(dev, INI, "state", "active")
         if pos.Has(dev)
             target := pos[dev]
         else if area.Length
             target := Center(area[1])
-    } else if (followerOn && area.Length && !InArea(area, cur)) {
-        target := pos.Has(dev) ? pos[dev] : Center(area[1])   ; back from the trackpad
+    } else if followerOn {                  ; same mouse again after the trackpad: its own spot
+        if pos.Has(dev)
+            target := pos[dev]
+        else if area.Length
+            target := Center(area[1])
+        Log("back to " Short(dev) " after trackpad  goto " (target ? target[1] "," target[2] : "-"))
     }
     followerOn := false
 
@@ -400,6 +431,25 @@ LoadZones() {
         eq := InStr(line, "=", , -1)
         if eq
             follow[SubStr(line, 1, eq - 1)] := 1
+    }
+    for line in StrSplit(IniRead(INI, "pos", , ""), "`n", "`r") {   ; each mouse's last spot
+        eq := InStr(line, "=", , -1)
+        r := eq ? StrSplit(SubStr(line, eq + 1), ",") : []
+        if r.Length = 2
+            pos[SubStr(line, 1, eq - 1)] := [Integer(r[1]), Integer(r[2])]
+    }
+    global active := IniRead(INI, "state", "active", "")
+}
+
+; Short label for the log: VID:PID (or VEN) of a device key.
+Short(d) => RegExMatch(d, "i)(?:VID[_&]0*|VEN_)([0-9A-F]+)(?:.*?PID[_&]([0-9A-F]+))?", &m) ? m[1] (m[2] != "" ? ":" m[2] : "") : (d = "" ? "-" : d)
+
+Log(s) {
+    static f := A_ScriptDir "\mouse-zones.log"
+    try {
+        if FileExist(f) && FileGetSize(f) > 200000
+            FileDelete(f)
+        FileAppend(FormatTime(, "HH:mm:ss") " " s "`n", f)
     }
 }
 

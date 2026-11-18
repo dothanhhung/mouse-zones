@@ -38,7 +38,7 @@ A trackpad has three profiles. Switch between them from the tray menu, from **ri
 | Profile | What the trackpad does |
 |---|---|
 | 1. Default: follow the USB mouse | Acts as the last mouse that has no screen of its own: it shares that mouse's spot and moves it |
-| 2. Follow the latest mouse | Has no spot of its own: carries on from wherever the last mouse left the cursor, goes anywhere, and counts as part of that mouse. If that mouse has its own screen and the trackpad left the cursor elsewhere, the mouse jumps back to its own spot |
+| 2. Follow the latest mouse | Has no spot of its own: starts wherever the last mouse left the cursor and goes anywhere. It never changes a mouse's spot, so the next mouse you touch (the same one or another) comes back to its own spot |
 | 3. Own screens only | Stays on the screens listed in `trackpadScreens` and keeps its own spot there. Push past the side edge of one screen and it comes in on the next one, even when other screens sit between them |
 
 Profile 3 reads its screens from `mouse-zones.ini`, ordered left to right (`L,T,R,B` in real pixels, separated by `|`):
@@ -61,6 +61,8 @@ Windows' own shortcut works too: **Win+Shift+←/→** moves the active window t
 - When a different mouse moves, the script saves the cursor position for the mouse it is leaving, calls `SetCursorPos` to put the cursor at the new mouse's last spot, and calls `ClipCursor` to keep it inside that mouse's screen. The clip is set again on every event, because Windows drops it on some focus changes.
 - Window moves are detected with a `SetWinEventHook` on `EVENT_SYSTEM_MOVESIZESTART`/`END`. Resizes are ignored. Maximized or snapped windows are left alone.
 - The thread runs per-monitor DPI aware, so the coordinates stay correct on screens with different scaling.
+
+A mouse takes over the cursor only on a real move (4+ counts within 0.3 s) or a click/scroll. Empty or jitter reports, which some Bluetooth mice send while lying still, are ignored. Each mouse's spot is saved in `mouse-zones.ini`, so it survives a restart. Every switch is written to `mouse-zones.log`.
 
 ## Limits
 - There is still one cursor. You can't use both mice at the same moment.

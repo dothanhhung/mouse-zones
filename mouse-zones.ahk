@@ -217,7 +217,11 @@ DevName(hDev) {
     DllCall("GetRawInputDeviceInfo", "ptr", hDev, "uint", 0x20000007, "ptr", 0, "uint*", &n)
     buf := Buffer(n * 2 + 2, 0)
     DllCall("GetRawInputDeviceInfo", "ptr", hDev, "uint", 0x20000007, "ptr", buf, "uint*", &n)
-    name := StrReplace(StrGet(buf), "=", "_")
+    ; Key by hardware id only (\\?\HID#VID_..&PID_..&COL01), dropping the instance part,
+    ; so a mouse keeps its screen after a Bluetooth reconnect or a different USB port.
+    parts := StrSplit(StrGet(buf), "#")
+    name := parts.Length >= 2 ? parts[1] "#" parts[2] : parts[1]
+    name := StrUpper(StrReplace(name, "=", "_"))
     names[hDev] := name
     return name
 }

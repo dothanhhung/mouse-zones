@@ -38,7 +38,7 @@ Your mouse stops at the screen edge, so grab the title bar on the side away from
 Windows' own shortcut works too: **Win+Shift+←/→** moves the active window to the next screen.
 
 ## How it works
-- `RegisterRawInputDevices` with `RIDEV_INPUTSINK` sends the script every mouse event, along with the handle of the device it came from. Mice are saved by their device name (`GetRawInputDeviceInfo` / `RIDI_DEVICENAME`), which stays the same across restarts.
+- `RegisterRawInputDevices` with `RIDEV_INPUTSINK` sends the script every mouse event, along with the handle of the device it came from. Mice are saved by their hardware ID (the `VID/PID` part of `RIDI_DEVICENAME`, without the instance part), so a mouse keeps its screen after a restart, a Bluetooth reconnect or a move to another USB port. Two mice of the exact same model share one setting.
 - When a different mouse moves, the script saves the cursor position for the mouse it is leaving, calls `SetCursorPos` to put the cursor at the new mouse's last spot, and calls `ClipCursor` to keep it inside that mouse's screen. The clip is set again on every event, because Windows drops it on some focus changes.
 - Window moves are detected with a `SetWinEventHook` on `EVENT_SYSTEM_MOVESIZESTART`/`END`. Resizes are ignored. Maximized or snapped windows are left alone.
 - The thread runs per-monitor DPI aware, so the coordinates stay correct on screens with different scaling.

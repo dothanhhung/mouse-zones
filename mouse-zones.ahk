@@ -6,13 +6,37 @@
 ;   Ctrl+Alt+F  the device you moved last is a trackpad: no own spot, follows the last mouse (toggle)
 ;   Ctrl+Alt+P  pause / resume
 ;   Ctrl+Alt+Q  quit
+; Trackpad profiles (tray menu, or right-click the desktop -> Trackpad profile):
+;   1 = the trackpad is the USB mouse (shares its spot)   2 = follows the latest mouse
+;   3 = stays on its own screens (ini trackpadScreens), crossing from one to the next at the side edge
 ; Assignments are saved in mouse-zones.ini next to this script.
+; Args: /trackpad1 /trackpad2 /trackpad3 = switch the running copy's profile.
 
 #Requires AutoHotkey v2.0
-#SingleInstance Force
+#SingleInstance Off
 Persistent
 
 global INI := A_ScriptDir "\mouse-zones.ini"
+global MSG_CMD := 0x5C58
+global PROFILES := ["1. Default: follow the USB mouse", "2. Follow the latest mouse", "3. Screens 3 + 4 only"]
+global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
+
+; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
+global reqProfile := (A_Args.Length && RegExMatch(A_Args[1], "i)^/trackpad([123])$", &m)) ? Integer(m[1]) : 0
+DetectHiddenWindows(true)
+for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
+    if (hw = A_ScriptHwnd)
+        continue
+    if reqProfile {
+        PostMessage(MSG_CMD, reqProfile, 0, , hw)
+        ExitApp
+    }
+    WinClose(hw)                        ; plain start = replace the old copy
+    WinWaitClose(hw, , 3)
+}
+DetectHiddenWindows(false)
+if reqProfile
+    IniWrite(reqProfile, INI, "settings", "trackpad")
 global zone := Map()      ; device name -> [L, T, R, B]
 global pos := Map()       ; device name -> [x, y] last cursor spot of that mouse
 global names := Map()     ; raw handle -> device name (cache)
@@ -21,8 +45,14 @@ global lastDev := ""      ; device name that moved last
 global enabled := true
 global follow := Map("(none)", 1)   ; trackpads: follow the last mouse (ini [followers])
 global followerOn := false          ; the trackpad moved since the last real-mouse event
+global lastFree := ""               ; last mouse with no screen of its own (the USB mouse)
+global tpProfile := 1
+global tpScreens := []              ; profile 3: the trackpad's screens, left to right
 
 LoadZones()
+LoadSettings()
+EnsureMenu()
+OnMessage(MSG_CMD, (w, *) => (SetTimer(() => SetProfile(w), -1), 1))
 
 ; Listen to all mice, even when this script has no focus (RIDEV_INPUTSINK).
 rid := Buffer(8 + A_PtrSize, 0)
@@ -30,7 +60,7 @@ NumPut("ushort", 1, "ushort", 2, "uint", 0x100, "ptr", A_ScriptHwnd, rid)
 if !DllCall("RegisterRawInputDevices", "ptr", rid, "uint", 1, "uint", rid.Size)
     MsgBox "Could not register for raw mouse input."
 OnMessage(0x00FF, OnRawInput)
-OnExit((*) => DllCall("ClipCursor", "ptr", 0))
+OnExit((*) => (DllCall("ClipCursor", "ptr", 0), 0))   ; must return 0: non-zero cancels the exit
 
 ; Window drag: when a window is dropped with 50%+ of it off its screen,
 ; move it fully onto the screen it was dragged toward.
@@ -40,10 +70,10 @@ DllCall("SetWinEventHook", "uint", 0x000A, "uint", 0x000B, "ptr", 0, "ptr", move
     , "uint", 0, "uint", 0, "uint", 0, "ptr")   ; MOVESIZESTART..MOVESIZEEND, out of context
 
 A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
-Tip("Mouse Zones running - " zone.Count " mouse(s) assigned")
+Tip("Mouse Zones running - " zone.Count " mouse(s) assigned - trackpad " PROFILES[tpProfile])
 
 OnRawInput(wParam, lParam, msg, hwnd) {
-    global active, lastDev, followerOn
+    global active, lastDev, followerOn, lastFree
     PMA()
     hdr := 8 + 2 * A_PtrSize
     size := 0
@@ -56,13 +86,23 @@ OnRawInput(wParam, lParam, msg, hwnd) {
         return
     hDev := NumGet(buf, 8, "ptr")
     dev := hDev ? DevName(hDev) : "(none)"  ; 0 = injected / some touchpads
+    flags := NumGet(buf, hdr, "ushort")
+    dx := (flags & 1) ? 0 : NumGet(buf, hdr + 12, "int")   ; MOUSE_MOVE_ABSOLUTE has no delta
     lastDev := dev
     if !enabled
         return
 
-    ; Trackpad (a "follower"): no spot of its own. It carries on from wherever the
-    ; last mouse left the cursor, goes anywhere, and counts as part of that mouse.
     if follow.Has(dev) {
+        if (tpProfile = 3 && dev != "(none)") {
+            Drive(dev, tpScreens, dx)       ; own screens, own spot
+            return
+        }
+        if (tpProfile = 1 && dev != "(none)" && lastFree != "" && !zone.Has(lastFree)) {
+            Drive(lastFree, [], 0)          ; acts as the USB mouse
+            return
+        }
+        ; profile 2: no spot of its own. Carries on from wherever the last mouse
+        ; left the cursor, goes anywhere, and counts as part of that mouse.
         if !followerOn {
             followerOn := true
             if (active != "")
@@ -72,36 +112,138 @@ OnRawInput(wParam, lParam, msg, hwnd) {
         return
     }
 
-    if (dev = active) {
-        if followerOn {                     ; back from the trackpad to the same mouse
-            followerOn := false
-            if zone.Has(dev) && !InZone(CursorPos(), zone[dev])
-                SetCur(ClampTo(pos.Has(dev) ? pos[dev] : Center(zone[dev]), zone[dev]))
-        }
-        if zone.Has(dev)
-            Clip(zone[dev])                 ; Windows drops the clip on some focus changes
-        return
-    }
+    if !zone.Has(dev)
+        lastFree := dev
+    Drive(dev, AreaOf(dev), dx)
+}
 
-    ; another mouse took over: remember where the old one left the cursor
-    ; (after trackpad use that is the trackpad's spot, unless it is off the old mouse's screen)
-    if (active != "") {
-        p := CursorPos()
-        if !(followerOn && zone.Has(active) && !InZone(p, zone[active]))
-            pos[active] := p
+; dev takes (or keeps) the cursor. area = the screens it may use, left to right ([] = anywhere).
+Drive(dev, area, dx) {
+    global active, followerOn
+    cur := CursorPos()
+    target := 0
+    if (dev != active) {
+        ; remember where the old device left the cursor (after trackpad use that is the
+        ; trackpad's spot, unless the trackpad took it off the old device's screens)
+        if (active != "" && !(followerOn && !InArea(AreaOf(active), cur)))
+            pos[active] := cur
+        active := dev
+        if pos.Has(dev)
+            target := pos[dev]
+        else if area.Length
+            target := Center(area[1])
+    } else if (followerOn && area.Length && !InArea(area, cur)) {
+        target := pos.Has(dev) ? pos[dev] : Center(area[1])   ; back from the trackpad
     }
     followerOn := false
-    active := dev
 
-    if zone.Has(dev) {
-        z := zone[dev]
-        p := ClampTo(pos.Has(dev) ? pos[dev] : Center(z), z)
-        Clip(z)
-        SetCur(p)
-    } else {
-        DllCall("ClipCursor", "ptr", 0)     ; unassigned mouse roams freely...
-        if pos.Has(dev)                     ; ...but still gets its own spot back
-            SetCur(pos[dev])
+    if !area.Length {
+        DllCall("ClipCursor", "ptr", 0)     ; free device: goes anywhere, keeps its own spot
+        if target
+            SetCur(target)
+        return
+    }
+    p := target ? target : cur
+    i := AreaIndex(area, p)
+    if !i {
+        i := 1
+        target := p
+    } else if (!target && area.Length > 1 && dx) {
+        j := EdgeJump(area, i, p, dx)       ; pushed past the side edge -> next screen
+        if j {
+            i := j[1]
+            target := j[2]
+        }
+    }
+    Clip(area[i])                           ; also re-set: Windows drops it on some focus changes
+    if target
+        SetCur(ClampTo(target, area[i]))
+}
+
+AreaOf(d) {
+    if follow.Has(d)
+        return (tpProfile = 3 && d != "(none)") ? tpScreens : []
+    return zone.Has(d) ? [zone[d]] : []
+}
+
+AreaIndex(area, p) {
+    for i, z in area
+        if InZone(p, z)
+            return i
+    return 0
+}
+
+InArea(area, p) => !area.Length || AreaIndex(area, p) > 0
+
+EdgeJump(area, i, p, dx) {
+    z := area[i]
+    if (dx > 0 && p[1] >= z[3] - 1 && i < area.Length) {
+        n := area[i + 1]
+        return [i + 1, [n[1], MapY(p[2], z, n)]]
+    }
+    if (dx < 0 && p[1] <= z[1] && i > 1) {
+        n := area[i - 1]
+        return [i - 1, [n[3] - 1, MapY(p[2], z, n)]]
+    }
+    return 0
+}
+
+MapY(y, a, b) => b[2] + Round((y - a[2]) * (b[4] - b[2]) / (a[4] - a[2]))
+
+SetProfile(n) {
+    global tpProfile, active, followerOn
+    if (n < 1 || n > 3)
+        return
+    tpProfile := n
+    IniWrite(n, INI, "settings", "trackpad")
+    if follow.Has(active)
+        active := ""
+    followerOn := false
+    DllCall("ClipCursor", "ptr", 0)
+    UpdateMenus()
+    Tip("Trackpad: " PROFILES[n])
+}
+
+LoadSettings() {
+    global tpProfile, tpScreens
+    tpProfile := Integer(IniRead(INI, "settings", "trackpad", 1))
+    if (tpProfile < 1 || tpProfile > 3)
+        tpProfile := 1
+    tpScreens := []
+    for s in StrSplit(IniRead(INI, "settings", "trackpadScreens", ""), "|") {
+        r := StrSplit(s, ",")
+        if r.Length = 4
+            tpScreens.Push([Integer(r[1]), Integer(r[2]), Integer(r[3]), Integer(r[4])])
+    }
+    ; left to right, for the edge crossing
+    loop tpScreens.Length - 1
+        loop tpScreens.Length - A_Index
+            if tpScreens[A_Index][1] > tpScreens[A_Index + 1][1] {
+                t := tpScreens[A_Index], tpScreens[A_Index] := tpScreens[A_Index + 1], tpScreens[A_Index + 1] := t
+            }
+}
+
+; Desktop right-click menu "Trackpad profile" (sorts right after 0ClipStack) + tray menu.
+EnsureMenu() {
+    cmd := '"' A_AhkPath '" "' A_ScriptFullPath '" /trackpad'
+    try {
+        RegWrite("Trackpad profile", "REG_SZ", RKEY, "MUIVerb")
+        RegWrite("", "REG_SZ", RKEY, "SubCommands")
+        RegWrite("C:\Windows\System32\main.cpl,0", "REG_SZ", RKEY, "Icon")
+        RegWrite("Top", "REG_SZ", RKEY, "Position")
+        for i, label in PROFILES
+            RegWrite(cmd i, "REG_SZ", RKEY "\shell\" i "profile\command")
+    }
+    A_TrayMenu.Add()
+    for i, label in PROFILES
+        A_TrayMenu.Add("Trackpad " label, ((n, *) => SetProfile(n)).Bind(i))
+    UpdateMenus()
+}
+
+UpdateMenus() {
+    for i, label in PROFILES {
+        try RegWrite((i = tpProfile ? "● " : "") label, "REG_SZ", RKEY "\shell\" i "profile", "MUIVerb")
+        try (i = tpProfile) ? A_TrayMenu.Check("Trackpad " label) : A_TrayMenu.Uncheck("Trackpad " label)
     }
 }
 

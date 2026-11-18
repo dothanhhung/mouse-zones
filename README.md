@@ -31,9 +31,22 @@ The assignments are saved and come back after a restart.
 | Ctrl+Alt+P | Pause / resume |
 
 ## Trackpads
-A trackpad has no spot of its own. It carries on from wherever the last mouse left the cursor and can go to any screen. It counts as part of that mouse, so when you pick that mouse up again it carries on from where the trackpad stopped. The one exception: if the mouse has its own screen and the trackpad left the cursor on another screen, the mouse jumps back to its own spot.
+Move the trackpad, then press **Ctrl+Alt+F** to mark it as a trackpad (press again to undo). Input with no device handle (some precision touchpads, injected input) always counts as a trackpad and uses profile 2.
 
-Move the trackpad, then press **Ctrl+Alt+F** to mark it (press again to undo). Input with no device handle (some precision touchpads, injected input) always counts as a trackpad.
+A trackpad has three profiles. Switch between them from the tray menu, from **right-click the desktop → Trackpad profile** (the script adds this entry itself, and ● marks the active profile), or by running `mouse-zones.ahk /trackpad1`, `/trackpad2` or `/trackpad3`:
+
+| Profile | What the trackpad does |
+|---|---|
+| 1. Default: follow the USB mouse | Acts as the last mouse that has no screen of its own: it shares that mouse's spot and moves it |
+| 2. Follow the latest mouse | Has no spot of its own: carries on from wherever the last mouse left the cursor, goes anywhere, and counts as part of that mouse. If that mouse has its own screen and the trackpad left the cursor elsewhere, the mouse jumps back to its own spot |
+| 3. Own screens only | Stays on the screens listed in `trackpadScreens` and keeps its own spot there. Push past the side edge of one screen and it comes in on the next one, even when other screens sit between them |
+
+Profile 3 reads its screens from `mouse-zones.ini`, ordered left to right (`L,T,R,B` in real pixels, separated by `|`):
+```
+[settings]
+trackpad=3
+trackpadScreens=0,0,1920,1080|3840,29,5760,1109
+```
 | Ctrl+Alt+Q | Quit |
 
 ## Moving windows to another screen

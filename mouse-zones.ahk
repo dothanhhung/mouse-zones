@@ -25,8 +25,8 @@ global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 ; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
 global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
 global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
-if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap))$", &m))
-    reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : 5   ; 5 = same as the 3-finger tap
+if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap)|(hop))$", &m))
+    reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : m[3] != "" ? 5 : 6   ; 5 = 3-finger tap, 6 = 4-finger tap
 DetectHiddenWindows(true)
 for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     if (hw = A_ScriptHwnd)
@@ -45,7 +45,7 @@ if (reqProfile = 4)
     IniWrite(IniRead(INI, "settings", "swap", 0) = 1 ? 0 : 1, INI, "settings", "swap")
 else if (reqProfile = 5)
     IniWrite(IniRead(INI, "settings", "trackpad", 1) = 3 ? 1 : 3, INI, "settings", "trackpad")
-else if reqProfile
+else if (reqProfile >= 1 && reqProfile <= 3)
     IniWrite(reqProfile, INI, "settings", "trackpad")
 global zone := Map()      ; device name -> [L, T, R, B]
 global pos := Map()       ; device name -> [x, y] last cursor spot of that mouse
@@ -74,7 +74,7 @@ RemoteCmd(w, *) {
     if (w = last && A_TickCount - lastT < 2000)
         return 1                            ; menu clicked twice: don't toggle back
     last := w, lastT := A_TickCount
-    SetTimer(() => (w = 5 ? TpProfileToggle() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
+    SetTimer(() => (w = 6 ? TpScreenToggle() : w = 5 ? TpProfileToggle() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
     return 1
 }
 
@@ -473,7 +473,51 @@ UpdateMenus() {
 ;   -> 3: onto the trackpad's own spot on its screens (3 / 4)
 ;   -> 1: onto the USB mouse's spot (profile 1 = the trackpad is the USB mouse)
 ; The mice keep their own spots either way.
+; Windows' gesture key recorder drops F-keys, so the taps are recorded as Ctrl+Alt+Shift+3 / +4.
+^!+3::
 ^!+F9:: TpProfileToggle()
+
+; Ctrl+Alt+Shift+F10 = the 4-finger trackpad tap (same Settings page, four-finger tap). Jumps the
+; trackpad to the other of its screens (3 <-> 4), back to where it was last there. Turns profile 3
+; on first if it was off. The mice keep their own spots.
+^!+4::
+^!+F10:: TpScreenToggle()
+
+TpScreenToggle() {
+    global active, followerOn, ownerT
+    static spot := Map()                    ; screen index -> last cursor spot there
+    PMA()
+    if (tpScreens.Length < 2) {
+        Toast("4-finger tap", "No trackpad screens set (ini trackpadScreens)", 2500)
+        return
+    }
+    cur := CursorPos()
+    if (active != "" && active != tpDev && !followerOn) {
+        pos[active] := cur                  ; the mouse that had the cursor keeps its spot
+        try IniWrite(cur[1] "," cur[2], INI, "pos", active)
+    }
+    if (tpProfile != 3) {
+        SetProfile(3)
+        PMA()
+    }
+    i := AreaIndex(tpScreens, cur)
+    if i
+        spot[i] := cur
+    j := (i = 1) ? 2 : 1                    ; off the trackpad screens -> the first one
+    z := tpScreens[j]
+    target := ClampTo(spot.Has(j) ? spot[j] : Center(z), z)
+    active := tpDev
+    followerOn := false
+    DllCall("ClipCursor", "ptr", 0)         ; the old clip would hold the cursor on its screen
+    SetCur(target)
+    Clip(z)
+    pos[tpDev] := target
+    try IniWrite(tpDev, INI, "state", "active")
+    ownerT := A_TickCount
+    Toast("Trackpad → screen " (j = 1 ? 3 : 4), "4-finger tap again: screen " (j = 1 ? 4 : 3), 1500)
+    PMA()
+    Log("4-finger tap: screen " i " -> " j "  goto " target[1] "," target[2])
+}
 
 TpProfileToggle() {
     global active, followerOn, ownerT

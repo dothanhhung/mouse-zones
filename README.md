@@ -51,10 +51,21 @@ swapB=<device key of the mouse that is normally free>
 ```
 The device keys are the ones written under `[zones]` / `[pos]`.
 
-### 3-finger tap: profile 3 ↔ 1
-**Ctrl+Alt+Shift+F9** switches the trackpad between profile 3 and profile 1, and moves the cursor at once so you see the change. Going to 3, the cursor jumps to the trackpad's own spot on its screens. Going to 1, it jumps to the free mouse's spot. The mice keep their own spots. `mouse-zones.ahk /tap` does the same from a command line.
+### 3- and 4-finger taps
+| Tap | Shortcut | What it does |
+|---|---|---|
+| 3 fingers | **Ctrl+Alt+Shift+3** (or F9) | Switches the trackpad between profile 3 and profile 1. Going to 3, the cursor jumps to the trackpad's own spot on its screens; going to 1, it jumps to the free mouse's spot |
+| 4 fingers | **Ctrl+Alt+Shift+4** (or F10) | Jumps the trackpad to the other of its two screens, back to its last spot there. Turns profile 3 on first if needed |
 
-To put it on a 3-finger tap: pause Mouse Zones (Ctrl+Alt+P), go to Windows Settings → Bluetooth & devices → Touchpad → Advanced gestures → Three-finger tap → Custom shortcut, record Ctrl+Alt+Shift+F9, then resume with Ctrl+Alt+P.
+The mice keep their own spots. `mouse-zones.ahk /tap` and `/hop` do the same from a command line.
+
+To put them on the taps: Windows Settings → Bluetooth & devices → Touchpad → Advanced gestures → Tap → Custom shortcut → record the keys. Windows' key recorder ignores F-keys, which is why the digit versions exist. The setting lives in `HKCU\Software\Microsoft\Windows\CurrentVersion\PrecisionTouchPad`:
+```
+ThreeFingerTapEnabled        = 0xFFFF       (custom shortcut)
+CustomThreeFingerTap         = 7            (Ctrl + Shift + Alt)
+CustomThreeFingerTapKeyParams = 0x00330013  (high word = virtual key, 0x33 = "3")
+```
+and the same values with `Four` for the 4-finger tap (`0x00340013` = "4"). Windows then opens Search and Notification center with Win+S and Win+N only.
 
 ### 4-click shortcut on the trackpad
 Click or tap the trackpad 4 times quickly (each within 0.45 s) to step through a cycle:

@@ -27,6 +27,8 @@ global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
 global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
 if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap)|(hop))$", &m))
     reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : m[3] != "" ? 5 : 6   ; 5 = 3-finger tap, 6 = 4-finger tap
+if !reqProfile                          ; a real start (login / restart): say so at once
+    Toast("Mouse Zones is starting…", "Mice and trackpad follow your settings in a moment")
 DetectHiddenWindows(true)
 for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
     if (hw = A_ScriptHwnd)
@@ -74,7 +76,7 @@ RemoteCmd(w, *) {
     if (w = last && A_TickCount - lastT < 2000)
         return 1                            ; menu clicked twice: don't toggle back
     last := w, lastT := A_TickCount
-    SetTimer(() => (w = 6 ? TpScreenToggle() : w = 5 ? TpProfileToggle() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
+    SetTimer(() => (w = 6 ? TpTap4() : w = 5 ? TpTap3() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
     return 1
 }
 
@@ -94,7 +96,9 @@ DllCall("SetWinEventHook", "uint", 0x000A, "uint", 0x000B, "ptr", 0, "ptr", move
     , "uint", 0, "uint", 0, "uint", 0, "ptr")   ; MOVESIZESTART..MOVESIZEEND, out of context
 
 A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
-Tip("Mouse Zones running - " zone.Count " mouse(s) assigned - trackpad " PROFILES[tpProfile])
+Log("start" (A_Args.Length ? " " A_Args[1] : "") "  (" Round(A_TickCount / 1000) " s after Windows started)")
+; (setup takes well under a second; keep "starting…" readable, then say it's ready)
+SetTimer(() => Toast("Mouse Zones ready ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? " · mouse swap on" : ""), 3000), -1000)
 
 OnRawInput(wParam, lParam, msg, hwnd) {
     global active, lastDev, followerOn, lastFree, ownerT, tpDev
@@ -223,6 +227,8 @@ Drive(dev, area, dx, dy := 0, btn := 1) {
     Clip(area[i])                           ; also re-set: Windows drops it on some focus changes
     if target
         SetCur(ClampTo(target, area[i]))
+    if (follow.Has(dev) && tpProfile = 3)   ; the trackpad's last spot on each of its screens
+        pos["TRACKPAD-S" i] := ClampTo(target ? target : cur, area[i])
 }
 
 AreaOf(d) {
@@ -467,57 +473,101 @@ UpdateMenus() {
 
 ^!q:: ExitApp
 
-; Ctrl+Alt+Shift+F9 = the 3-finger trackpad tap (Windows Settings > Touchpad > Advanced gestures >
-; three-finger tap = this custom shortcut). Toggles trackpad profile 3 <-> 1, and moves the cursor
-; at once so the change is visible:
-;   -> 3: onto the trackpad's own spot on its screens (3 / 4)
-;   -> 1: onto the USB mouse's spot (profile 1 = the trackpad is the USB mouse)
-; The mice keep their own spots either way.
-; Windows' gesture key recorder drops F-keys, so the taps are recorded as Ctrl+Alt+Shift+3 / +4.
+; Trackpad taps (Windows Settings > Touchpad > Advanced gestures > Tap > Custom shortcut).
+; Windows' gesture key recorder drops F-keys, so the taps send Ctrl+Alt+Shift+3 / +4 (F9 / F10 work too).
+;   3 fingers: profile 1 -> profile 3 on screen 3  |  profile 3 -> back to 1, where the trackpad was before
+;   4 fingers: profile 1 -> profile 3 on screen 4  |  profile 3 -> hop to the other screen (3 <-> 4)
+; Each trackpad screen keeps the trackpad's last spot there. The mice keep their own spots.
 ^!+3::
-^!+F9:: TpProfileToggle()
+^!+F9:: TpTap3()
 
-; Ctrl+Alt+Shift+F10 = the 4-finger trackpad tap (same Settings page, four-finger tap). Jumps the
-; trackpad to the other of its screens (3 <-> 4), back to where it was last there. Turns profile 3
-; on first if it was off. The mice keep their own spots.
 ^!+4::
-^!+F10:: TpScreenToggle()
+^!+F10:: TpTap4()
 
-TpScreenToggle() {
-    global active, followerOn, ownerT
-    static spot := Map()                    ; screen index -> last cursor spot there
+TpTap3() {
     PMA()
-    if (tpScreens.Length < 2) {
-        Toast("4-finger tap", "No trackpad screens set (ini trackpadScreens)", 2500)
+    if (tpProfile != 3)
+        TpEnter(1, "3-finger tap")
+    else
+        TpLeave()
+}
+
+TpTap4() {
+    PMA()
+    if (tpProfile != 3) {
+        TpEnter(2, "4-finger tap")
+        return
+    }
+    cur := CursorPos()
+    i := AreaIndex(tpScreens, cur)
+    if i
+        TpSaveSpot(i, cur)
+    TpGoScreen(i = 1 ? 2 : 1, "4-finger tap")
+}
+
+; From profile 1 / 2: the mouse keeps its spot, the trackpad goes to profile 3 on its screen j.
+TpEnter(j, why) {
+    if (tpScreens.Length < j) {
+        Toast(why, "No trackpad screens set (ini trackpadScreens)", 2500)
         return
     }
     cur := CursorPos()
     if (active != "" && active != tpDev && !followerOn) {
-        pos[active] := cur                  ; the mouse that had the cursor keeps its spot
+        pos[active] := cur
         try IniWrite(cur[1] "," cur[2], INI, "pos", active)
     }
-    if (tpProfile != 3) {
-        SaveTpHome(cur)
-        SetProfile(3)
-        PMA()
-    }
+    SaveTpHome(cur)                         ; where the trackpad was on screen 1 / 2
+    SetProfile(3)
+    TpGoScreen(j, why)
+}
+
+; Back to profile 1: to where the trackpad was before it went to screens 3 / 4.
+TpLeave() {
+    global active, followerOn, ownerT
+    cur := CursorPos()
     i := AreaIndex(tpScreens, cur)
     if i
-        spot[i] := cur
-    j := (i = 1) ? 2 : 1                    ; off the trackpad screens -> the first one
+        TpSaveSpot(i, cur)
+    SetProfile(1)                           ; also releases the clip and shows the message
+    PMA()                                   ; (the message switched the thread's DPI mode)
+    followerOn := false
+    DllCall("ClipCursor", "ptr", 0)
+    if (lastFree != "" && !zone.Has(lastFree))
+        active := lastFree                  ; the trackpad now drives the USB mouse
+    if pos.Has("TRACKPAD-HOME")
+        SetCur(pos["TRACKPAD-HOME"])
+    else if (lastFree != "" && pos.Has(lastFree))
+        SetCur(pos[lastFree])
+    try IniWrite(active, INI, "state", "active")
+    ownerT := A_TickCount
+    p := CursorPos()
+    Log("3-finger tap: back to profile 1  cursor " p[1] "," p[2])
+}
+
+; Put the trackpad on its screen j (1 = screen 3, 2 = screen 4), at its last spot there.
+TpGoScreen(j, why) {
+    global active, followerOn, ownerT
+    PMA()
     z := tpScreens[j]
-    target := ClampTo(spot.Has(j) ? spot[j] : Center(z), z)
+    key := "TRACKPAD-S" j
+    target := ClampTo(pos.Has(key) ? pos[key] : Center(z), z)
     active := tpDev
     followerOn := false
     DllCall("ClipCursor", "ptr", 0)         ; the old clip would hold the cursor on its screen
     SetCur(target)
     Clip(z)
     pos[tpDev] := target
+    pos[key] := target
     try IniWrite(tpDev, INI, "state", "active")
     ownerT := A_TickCount
-    Toast("Trackpad → screen " (j = 1 ? 3 : 4), "4-finger tap again: screen " (j = 1 ? 4 : 3), 1500)
+    Toast("Trackpad → screen " (j + 2), "3 fingers: back to profile 1 · 4 fingers: screen " (j = 1 ? 4 : 3), 1800)
     PMA()
-    Log("4-finger tap: screen " i " -> " j "  goto " target[1] "," target[2])
+    Log(why ": trackpad on screen " (j + 2) "  goto " target[1] "," target[2])
+}
+
+TpSaveSpot(i, p) {
+    pos["TRACKPAD-S" i] := p
+    try IniWrite(p[1] "," p[2], INI, "pos", "TRACKPAD-S" i)
 }
 
 ; Remember the trackpad's spot outside its own screens (screen 1 / 2), for the way back to profile 1.
@@ -528,44 +578,6 @@ SaveTpHome(p) {
     try IniWrite(p[1] "," p[2], INI, "pos", "TRACKPAD-HOME")
 }
 
-TpProfileToggle() {
-    global active, followerOn, ownerT
-    PMA()
-    cur := CursorPos()
-    ; remember where whatever had the cursor left it
-    if (active != "" && !followerOn) {
-        pos[active] := cur
-        try IniWrite(cur[1] "," cur[2], INI, "pos", active)
-    }
-    goTo3 := tpProfile != 3
-    if goTo3
-        SaveTpHome(cur)                     ; where the trackpad was on screen 1 / 2
-    SetProfile(goTo3 ? 3 : 1)               ; also releases the clip and shows the message
-    PMA()                                   ; (the message switched the thread's DPI mode)
-    followerOn := false
-    if (goTo3 && tpScreens.Length) {
-        area := tpScreens
-        p := pos.Has(tpDev) ? pos[tpDev] : Center(area[1])
-        i := AreaIndex(area, p)
-        if !i
-            i := 1, p := Center(area[1])
-        active := tpDev
-        Clip(area[i])
-        SetCur(ClampTo(p, area[i]))
-    } else if !goTo3 {
-        DllCall("ClipCursor", "ptr", 0)
-        if (lastFree != "" && !zone.Has(lastFree))
-            active := lastFree              ; the trackpad now drives the USB mouse
-        ; back to where the trackpad was before it went to screens 3 / 4
-        if pos.Has("TRACKPAD-HOME")
-            SetCur(pos["TRACKPAD-HOME"])
-        else if (lastFree != "" && pos.Has(lastFree))
-            SetCur(pos[lastFree])
-    }
-    try IniWrite(active, INI, "state", "active")
-    ownerT := A_TickCount
-    Log("3-finger tap: trackpad profile " (goTo3 ? 3 : 1) "  cursor " CursorPos()[1] "," CursorPos()[2])
-}
 
 OnMoveSize(hHook, event, hwnd, idObject, idChild, thread, time) {
     if idObject != 0

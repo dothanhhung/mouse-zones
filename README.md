@@ -10,6 +10,8 @@ Windows has a single cursor, and every mouse you plug in moves it. With two mice
 
 No driver is needed. The script reads Windows Raw Input, which already says which device each movement came from.
 
+On start, a small message says "Mouse Zones is starting…" and then "Mouse Zones ready ✓" with the trackpad profile, so after logging in you can see when it's working. Each start and exit is written to `mouse-zones.log`.
+
 ## Install
 1. Install [AutoHotkey v2](https://www.autohotkey.com/).
 2. Download `mouse-zones.ahk` into a folder of its own. It writes `mouse-zones.ini` next to itself.
@@ -54,8 +56,10 @@ The device keys are the ones written under `[zones]` / `[pos]`.
 ### 3- and 4-finger taps
 | Tap | Shortcut | What it does |
 |---|---|---|
-| 3 fingers | **Ctrl+Alt+Shift+3** (or F9) | Switches the trackpad between profile 3 and profile 1. Going to 3, the cursor jumps to the trackpad's own spot on its screens; going back to 1, it returns to where it was before it went there (saved as `TRACKPAD-HOME` under `[pos]`) |
-| 4 fingers | **Ctrl+Alt+Shift+4** (or F10) | Jumps the trackpad to the other of its two screens, back to its last spot there. Turns profile 3 on first if needed |
+| 3 fingers | **Ctrl+Alt+Shift+3** (or F9) | On profile 1/2: profile 3, on the **first** trackpad screen. On profile 3: back to profile 1, where the cursor was before it went to the trackpad screens (saved as `TRACKPAD-HOME` under `[pos]`) |
+| 4 fingers | **Ctrl+Alt+Shift+4** (or F10) | On profile 1/2: profile 3, on the **second** trackpad screen. On profile 3: hops to the other trackpad screen |
+
+Each trackpad screen keeps the trackpad's last spot on it (`TRACKPAD-S1` / `TRACKPAD-S2`).
 
 The mice keep their own spots. `mouse-zones.ahk /tap` and `/hop` do the same from a command line.
 

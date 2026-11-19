@@ -354,13 +354,26 @@ ToggleFreeUsb() {
     active := ""                            ; next move: that mouse carries on from its own spot
     followerOn := false
     DllCall("ClipCursor", "ptr", 0)
+    if !usbFree {                           ; off: the USB mouse goes back to the middle of the 27"
+        z := zone.Has(swapB) ? zone[swapB] : baseZone.Has(swapA) ? baseZone[swapA] : 0
+        if z {
+            c := Center(z)
+            pos[swapB] := c
+            try IniWrite(c[1] "," c[2], INI, "pos", swapB)
+            active := swapB
+            SetCur(c)
+            if zone.Has(swapB)
+                Clip(z)
+        }
+    }
     UpdateMenus()
     Log("free USB mouse " (usbFree ? "ON" : "OFF"))
     if usbFree
         Toast("USB mouse free ✓", "No fixed screen" (swapOn ? " (Bluetooth is free too: swap is on)" : "")
             . " · 3 quick right clicks: undo", 2500)
     else
-        Toast("Free USB mouse: off ✓", zone.Has(swapB) ? 'USB mouse back on the 27"' : "USB mouse is free anyway (swap is off)", 2500)
+        Toast("Free USB mouse: off ✓", zone.Has(swapB) ? 'USB mouse back on the 27", in the middle'
+            : 'Cursor in the middle of the 27" (USB mouse is free anyway: swap is off)', 2500)
 }
 
 SetProfile(n, fromCycle := false) {

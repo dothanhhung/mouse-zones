@@ -56,7 +56,7 @@ The device keys are the ones written under `[zones]` / `[pos]`.
 ### Free USB mouse
 Item **5. Free USB mouse** (or `mouse-zones.ahk /freeusb`) is another on/off switch: the `swapB` mouse never has a fixed screen, whatever else is set. Nothing else changes: with the swap on, both mice are free; with the swap off, the USB mouse was free anyway. Saved as `usbFree=1` under `[settings]`.
 
-Shortcut: **3 quick two-finger taps** (right clicks) on the trackpad, each within 0.6 s. Each tap is still a right click; if the last one left a context menu under the cursor, the script closes it with Esc.
+Shortcut: **3 quick right clicks on the USB mouse**, or **3 quick two-finger taps** (right clicks) on the trackpad, each within 0.6 s. Each one is still a right click; if the last one left a context menu under the cursor, the script closes it with Esc. (Left-right-left would be a bad shortcut: it's the normal "right-click, pick an item" move.)
 
 ### 3- and 4-finger taps
 | Tap | Shortcut | What it does |

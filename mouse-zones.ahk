@@ -9,8 +9,10 @@
 ; Trackpad profiles (tray menu, or right-click the desktop -> Trackpad profile):
 ;   1 = the trackpad is the USB mouse (shares its spot)   2 = follows the latest mouse
 ;   3 = stays on its own screens (ini trackpadScreens), crossing from one to the next at the side edge
+;   5 = Free USB mouse (on/off): the USB mouse (swapB) never has a fixed screen, even with the swap on.
+;       Shortcut: 3 quick two-finger taps (right clicks) on the trackpad.
 ; Assignments are saved in mouse-zones.ini next to this script.
-; Args: /trackpad1 /trackpad2 /trackpad3 = switch the running copy's profile.
+; Args: /trackpad1 /trackpad2 /trackpad3 = switch the running copy's profile. /swap, /freeusb = toggle.
 
 #Requires AutoHotkey v2.0
 #SingleInstance Off
@@ -24,9 +26,11 @@ global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 
 ; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
 global SWAPLABEL := '4. Swap: USB mouse on the 27", Bluetooth free'
+global FREELABEL := "5. Free USB mouse (no fixed screen)"
 global reqProfile := 0                  ; 1-3 = trackpad profile, 4 = toggle the mouse swap
-if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap)|(hop))$", &m))
-    reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : m[3] != "" ? 5 : 6   ; 5 = 3-finger tap, 6 = 4-finger tap
+if (A_Args.Length && RegExMatch(A_Args[1], "i)^/(?:trackpad([123])|(swap)|(tap)|(hop)|(freeusb))$", &m))
+    reqProfile := m[1] != "" ? Integer(m[1]) : m[2] != "" ? 4 : m[3] != "" ? 5 : m[4] != "" ? 6 : 7
+    ; 5 = 3-finger tap, 6 = 4-finger tap, 7 = toggle Free USB mouse
 ; /quiet = started by the login launcher (start-tools.ahk), which shows its own message
 global QUIET := A_Args.Length && A_Args[1] = "/quiet"
 if (!reqProfile && !QUIET)              ; a real start (restart by hand): say so at once
@@ -37,7 +41,7 @@ for hw in WinGetList(A_ScriptFullPath " ahk_class AutoHotkey") {
         continue
     if reqProfile {
         ; show at once that the menu click registered; the running copy then shows the result
-        Toast(reqProfile = 4 ? "Switching mouse…" : "Switching trackpad profile…", "One moment")
+        Toast(reqProfile = 4 || reqProfile = 7 ? "Switching mouse…" : "Switching trackpad profile…", "One moment")
         try SendMessage(MSG_CMD, reqProfile, 0, , hw, , , , 3000)
         ExitApp
     }
@@ -49,6 +53,8 @@ if (reqProfile = 4)
     IniWrite(IniRead(INI, "settings", "swap", 0) = 1 ? 0 : 1, INI, "settings", "swap")
 else if (reqProfile = 5)
     IniWrite(IniRead(INI, "settings", "trackpad", 1) = 3 ? 1 : 3, INI, "settings", "trackpad")
+else if (reqProfile = 7)
+    IniWrite(IniRead(INI, "settings", "usbFree", 0) = 1 ? 0 : 1, INI, "settings", "usbFree")
 else if (reqProfile >= 1 && reqProfile <= 3)
     IniWrite(reqProfile, INI, "settings", "trackpad")
 global zone := Map()      ; device name -> [L, T, R, B]
@@ -65,6 +71,7 @@ global tpScreens := []              ; profile 3: the trackpad's screens, left to
 global ownerT := 0                  ; time of the last event from whatever is driving the cursor
 global baseZone := Map()            ; zones as saved; `zone` = after the swap
 global swapOn := false, swapA := "", swapB := ""   ; swap: A (normally zoned) <-> B (normally free)
+global usbFree := false             ; "Free USB mouse": swapB never gets a fixed screen
 global cycleState := 0, cyclePrevProfile := 1, cyclePrevSwap := false   ; trackpad 4-click cycle
 global tpDev := "(none)"            ; the trackpad's device name (last trackpad that moved)
 
@@ -78,7 +85,7 @@ RemoteCmd(w, *) {
     if (w = last && A_TickCount - lastT < 2000)
         return 1                            ; menu clicked twice: don't toggle back
     last := w, lastT := A_TickCount
-    SetTimer(() => (w = 6 ? TpTap4() : w = 5 ? TpTap3() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
+    SetTimer(() => (w = 7 ? ToggleFreeUsb() : w = 6 ? TpTap4() : w = 5 ? TpTap3() : w = 4 ? ToggleSwap() : SetProfile(w)), -1)
     return 1
 }
 
@@ -101,7 +108,8 @@ A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Log("start" (A_Args.Length ? " " A_Args[1] : "") "  (" Round(A_TickCount / 1000) " s after Windows started)")
 ; (setup takes well under a second; keep "starting…" readable, then say it's ready)
 if !QUIET
-    SetTimer(() => Toast("Mouse Zones ready ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? " · mouse swap on" : ""), 3000), -1000)
+    SetTimer(() => Toast("Mouse Zones ready ✓", "Trackpad " PROFILES[tpProfile] (swapOn ? " · mouse swap on" : "")
+        . (usbFree ? " · USB mouse free" : ""), 3000), -1000)
 
 OnRawInput(wParam, lParam, msg, hwnd) {
     global active, lastDev, followerOn, lastFree, ownerT, tpDev
@@ -133,6 +141,8 @@ OnRawInput(wParam, lParam, msg, hwnd) {
 
     if (follow.Has(dev) && (btn & 1))       ; trackpad left click / tap (RI_MOUSE_LEFT_BUTTON_DOWN)
         CountClick()
+    if (follow.Has(dev) && (btn & 4))       ; trackpad right click / two-finger tap (RI_MOUSE_RIGHT_BUTTON_DOWN)
+        CountRightClick()
 
     if follow.Has(dev) {
         tpDev := dev
@@ -298,6 +308,61 @@ QuadClick() {
     Log("4-click cycle -> step " cycleState)
 }
 
+; 3 trackpad right clicks / two-finger taps in a row (each within 0.6 s): Free USB mouse on/off
+CountRightClick() {
+    static n := 0, t := 0
+    n := (A_TickCount - t < 600) ? n + 1 : 1
+    t := A_TickCount
+    if (n >= 3) {
+        n := 0
+        SetTimer(TripleRightClick, -250)    ; after the last tap's context menu has opened
+    }
+}
+
+TripleRightClick() {
+    ; each tap is still a right click: close the menu the last one opened (only if one is under the cursor,
+    ; so the Esc goes to that menu and nowhere else)
+    CoordMode("Mouse", "Screen")
+    MouseGetPos(, , &w)
+    try cls := WinGetClass(w)
+    catch
+        cls := ""
+    if (cls = "#32768" || cls = "Xaml_WindowedPopupClass" || cls = "Microsoft.UI.Content.PopupWindowSiteBridge"
+        || cls = "Chrome_WidgetWin_2")
+        Send "{Esc}"
+    Log("3 two-finger taps (menu under cursor: " (cls = "" ? "-" : cls) ")")
+    ToggleFreeUsb()
+}
+
+; Free USB mouse on/off. Only the USB mouse changes: it loses (or gets back) its fixed screen.
+ToggleFreeUsb() {
+    global usbFree, active, followerOn, lastFree
+    PMA()
+    if (swapB = "") {
+        Tip("Free USB mouse: set swapB (the USB mouse's device key) in mouse-zones.ini first")
+        return
+    }
+    if (active != "" && !followerOn) {      ; the mouse in use keeps its spot
+        p := CursorPos()
+        pos[active] := p
+        try IniWrite(p[1] "," p[2], INI, "pos", active)
+    }
+    usbFree := !usbFree
+    IniWrite(usbFree ? 1 : 0, INI, "settings", "usbFree")
+    ApplySwap()
+    lastFree := !zone.Has(swapB) ? swapB : (swapA != "" && !zone.Has(swapA)) ? swapA : lastFree
+    active := ""                            ; next move: that mouse carries on from its own spot
+    followerOn := false
+    DllCall("ClipCursor", "ptr", 0)
+    UpdateMenus()
+    Log("free USB mouse " (usbFree ? "ON" : "OFF"))
+    if usbFree
+        Toast("USB mouse free ✓", "No fixed screen" (swapOn ? " (Bluetooth is free too: swap is on)" : "")
+            . " · 3 two-finger taps: undo", 2500)
+    else
+        Toast("Free USB mouse: off ✓", zone.Has(swapB) ? 'USB mouse back on the 27"' : "USB mouse is free anyway (swap is off)", 2500)
+}
+
 SetProfile(n, fromCycle := false) {
     global tpProfile, active, followerOn, cycleState
     if (n < 1 || n > 3)
@@ -334,22 +399,26 @@ LoadSettings() {
     global swapOn := IniRead(INI, "settings", "swap", 0) = 1
     global swapA := IniRead(INI, "settings", "swapA", "")
     global swapB := IniRead(INI, "settings", "swapB", "")
+    global usbFree := IniRead(INI, "settings", "usbFree", 0) = 1
     ApplySwap()
 }
 
 ; zone = baseZone with the screens of swapA and swapB exchanged while the swap is on.
+; "Free USB mouse" then takes swapB's screen away.
 ApplySwap() {
     global zone := baseZone.Clone()
-    if !(swapOn && swapA != "" && swapB != "")
-        return
-    za := baseZone.Has(swapA) ? baseZone[swapA] : 0
-    zb := baseZone.Has(swapB) ? baseZone[swapB] : 0
-    for d, z in Map(swapA, zb, swapB, za) {
-        if z
-            zone[d] := z
-        else if zone.Has(d)
-            zone.Delete(d)
+    if (swapOn && swapA != "" && swapB != "") {
+        za := baseZone.Has(swapA) ? baseZone[swapA] : 0
+        zb := baseZone.Has(swapB) ? baseZone[swapB] : 0
+        for d, z in Map(swapA, zb, swapB, za) {
+            if z
+                zone[d] := z
+            else if zone.Has(d)
+                zone.Delete(d)
+        }
     }
+    if (usbFree && swapB != "" && zone.Has(swapB))
+        zone.Delete(swapB)
 }
 
 ToggleSwap(fromCycle := false) {
@@ -379,7 +448,8 @@ ToggleSwap(fromCycle := false) {
     UpdateMenus()
     Log("swap " (swapOn ? "ON" : "OFF"))
     Toast(swapOn ? 'Swap ON ✓' : 'Swap OFF ✓'
-        , swapOn ? 'USB mouse on the 27", Bluetooth free' : 'Bluetooth mouse on the 27", USB free', 2200)
+        , swapOn ? (usbFree ? 'Both mice free ("Free USB mouse" is on)' : 'USB mouse on the 27", Bluetooth free')
+        : 'Bluetooth mouse on the 27", USB free', 2200)
 }
 
 ; Desktop right-click menu "Trackpad profile" (sorts right after 0ClipStack) + tray menu.
@@ -393,11 +463,13 @@ EnsureMenu() {
         for i, label in PROFILES
             RegWrite(cmd i, "REG_SZ", RKEY "\shell\" i "profile\command")
         RegWrite('"' A_AhkPath '" "' A_ScriptFullPath '" /swap', "REG_SZ", RKEY "\shell\4profile\command")
+        RegWrite('"' A_AhkPath '" "' A_ScriptFullPath '" /freeusb', "REG_SZ", RKEY "\shell\5profile\command")
     }
     A_TrayMenu.Add()
     for i, label in PROFILES
         A_TrayMenu.Add("Trackpad " label, ((n, *) => SetProfile(n)).Bind(i))
     A_TrayMenu.Add(SWAPLABEL, (*) => ToggleSwap())
+    A_TrayMenu.Add(FREELABEL, (*) => ToggleFreeUsb())
     UpdateMenus()
 }
 
@@ -408,6 +480,8 @@ UpdateMenus() {
     }
     try RegWrite((swapOn ? "● " : "") SWAPLABEL, "REG_SZ", RKEY "\shell\4profile", "MUIVerb")
     try swapOn ? A_TrayMenu.Check(SWAPLABEL) : A_TrayMenu.Uncheck(SWAPLABEL)
+    try RegWrite((usbFree ? "● " : "") FREELABEL, "REG_SZ", RKEY "\shell\5profile", "MUIVerb")
+    try usbFree ? A_TrayMenu.Check(FREELABEL) : A_TrayMenu.Uncheck(FREELABEL)
 }
 
 ^!m:: {
@@ -420,6 +494,10 @@ UpdateMenus() {
     }
     if swapOn {
         Tip("Turn the mouse swap (4) off first")
+        return
+    }
+    if (usbFree && lastDev = swapB) {
+        Tip('Turn "Free USB mouse" (5) off first')
         return
     }
     p := CursorPos()

@@ -105,7 +105,7 @@ Windows' own shortcut works too: **Win+Shift+←/→** moves the active window t
 - Window moves are detected with a `SetWinEventHook` on `EVENT_SYSTEM_MOVESIZESTART`/`END`. Resizes are ignored. Maximized or snapped windows are left alone.
 - The thread runs per-monitor DPI aware, so the coordinates stay correct on screens with different scaling.
 
-A device takes over the cursor only on a click/scroll, or on a real move in one direction: a net 12+ counts over 3+ reports within 0.25 s, or 40+ while another device is moving at that moment. A mouse lying still can send empty reports or back-and-forth jitter (fast on 1000 Hz receivers). The empty ones are ignored and the jitter cancels out in the sum, so neither can steal the cursor. Each mouse's spot is saved in `mouse-zones.ini`, so it survives a restart. Every switch is written to `mouse-zones.log`.
+A trackpad takes over the cursor on its first report (it only reports when touched). A mouse takes over only on a click/scroll, or on a real move in one direction: a net 12+ counts over 3+ reports within 0.25 s, or 40+ while another device is moving at that moment. A mouse lying still can send empty reports or back-and-forth jitter (fast on 1000 Hz receivers). The empty ones are ignored and the jitter cancels out in the sum, so neither can steal the cursor. Each mouse's spot is saved in `mouse-zones.ini`, so it survives a restart. Every switch is written to `mouse-zones.log`.
 
 ## Limits
 - There is still one cursor. You can't use both mice at the same moment.

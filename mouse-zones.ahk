@@ -186,7 +186,9 @@ Drive(dev, area, dx, dy := 0, btn := 1) {
         accT[dev] := A_TickCount
         accX[dev] += dx, accY[dev] += dy, accN[dev] += 1
         need := (A_TickCount - ownerT < 150) ? 40 : 12
-        if (!btn && (Abs(accX[dev]) + Abs(accY[dev]) < need || accN[dev] < 3))
+        ; A trackpad only reports when touched (no jitter): it takes over at once. Gating it let it
+        ; drive the USB mouse's cursor for 40 counts first, because that mouse's jitter keeps ownerT fresh.
+        if (!btn && !follow.Has(dev) && (Abs(accX[dev]) + Abs(accY[dev]) < need || accN[dev] < 3))
             return
         accX[dev] := 0, accY[dev] := 0, accN[dev] := 0
     }

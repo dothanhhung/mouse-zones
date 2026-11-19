@@ -100,7 +100,7 @@ Your mouse stops at the screen edge, so grab the title bar on the side away from
 Windows' own shortcut works too: **Win+Shift+←/→** moves the active window to the next screen.
 
 ## Apps opened on the side screens open on the main screen
-With `launchTo` set, an app you open from the taskbar or Start on one of the `trackpadScreens` opens on the `launchTo` screen instead, centred (a maximized window stays maximized). Only new windows that appear on those screens within 15 s of the click are moved; windows of apps that are already open never move. Snipping Tool and Zalo stay where they open (`LAUNCH_SKIP` in the script).
+With `launchTo` set, an app you open from the taskbar or Start on one of the `trackpadScreens` opens on the `launchTo` screen instead, centred (a maximized window stays maximized). Only new windows that appear on those screens within 15 s of the click are moved; windows of apps that are already open never move. Snipping Tool, Zalo and Obsidian stay where they open (`LAUNCH_SKIP` in the script).
 ```
 [settings]
 launchTo=1923,-1072,3843,8

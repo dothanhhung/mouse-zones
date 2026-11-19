@@ -109,7 +109,7 @@ DllCall("SetWinEventHook", "uint", 0x000A, "uint", 0x000B, "ptr", 0, "ptr", move
 global launchTo := 0, launchArmT := 0
 global LAUNCH_HOSTS := "^(Shell_SecondaryTrayWnd|Shell_TrayWnd|Windows\.UI\.Core\.CoreWindow|XamlExplorerHostIslandWindow"
     . "|TopLevelWindowForOverflowXamlIsland|NotifyIconOverflowWindow)$"
-global LAUNCH_SKIP := "i)^(SnippingTool|ScreenClippingHost|ScreenSketch|Zalo\w*)\.exe$"   ; these stay put
+global LAUNCH_SKIP := "i)^(SnippingTool|ScreenClippingHost|ScreenSketch|Zalo\w*|Obsidian)\.exe$"   ; these stay put
 r := StrSplit(IniRead(INI, "settings", "launchTo", ""), ",")
 if r.Length = 4
     launchTo := [Integer(r[1]), Integer(r[2]), Integer(r[3]), Integer(r[4])]

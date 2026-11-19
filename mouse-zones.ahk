@@ -7,7 +7,7 @@
 ;   Ctrl+Alt+P  pause / resume
 ;   Ctrl+Alt+Q  quit
 ; Trackpad profiles (tray menu, or right-click the desktop -> Trackpad profile):
-;   1 = the trackpad is the USB mouse (shares its spot)   2 = follows the latest mouse
+;   1 = separate: the trackpad keeps its own spot, apart from the mice   2 = follows the latest mouse
 ;   3 = stays on its own screens (ini trackpadScreens), crossing from one to the next at the side edge
 ;   5 = Free USB mouse (on/off): the USB mouse (swapB) never has a fixed screen, even with the swap on.
 ;       Shortcut: 3 quick right clicks on the USB mouse.
@@ -21,7 +21,7 @@ Persistent
 global INI := A_ScriptDir "\mouse-zones.ini"
 global MSG_CMD := 0x5C58
 global toastGui := 0, toastT1 := 0, toastT2 := 0
-global PROFILES := ["1. Default: follow the USB mouse", "2. Follow the latest mouse", "3. Screens 3 + 4 only"]
+global PROFILES := ["1. Separate: trackpad has its own spot", "2. Follow the latest mouse", "3. Screens 3 + 4 only"]
 global RKEY := "HKCU\Software\Classes\DesktopBackground\Shell\0MouseZones"
 
 ; ---- one copy only; the right-click menu passes /trackpadN to the running one ----
@@ -150,8 +150,8 @@ OnRawInput(wParam, lParam, msg, hwnd) {
             Drive(dev, tpScreens, dx, dy, btn)   ; own screens, own spot
             return
         }
-        if (tpProfile = 1 && lastFree != "" && !zone.Has(lastFree)) {
-            Drive(lastFree, [], dx, dy, btn)     ; acts as the USB mouse
+        if (tpProfile = 1) {
+            Drive(dev, [], dx, dy, btn)          ; separate: own spot, goes anywhere
             return
         }
         ownerT := A_TickCount                    ; the trackpad is what's moving now
@@ -597,7 +597,8 @@ TpEnter(j, why) {
         pos[active] := cur
         try IniWrite(cur[1] "," cur[2], INI, "pos", active)
     }
-    SaveTpHome(cur)                         ; where the trackpad was on screen 1 / 2
+    ; where the trackpad was on screen 1 / 2 (its own spot, if a mouse was in use)
+    SaveTpHome((active = tpDev || !pos.Has(tpDev)) ? cur : pos[tpDev])
     SetProfile(3)
     TpGoScreen(j, why)
 }
@@ -613,12 +614,12 @@ TpLeave() {
     PMA()                                   ; (the message switched the thread's DPI mode)
     followerOn := false
     DllCall("ClipCursor", "ptr", 0)
-    if (lastFree != "" && !zone.Has(lastFree))
-        active := lastFree                  ; the trackpad now drives the USB mouse
+    active := tpDev                         ; profile 1: the trackpad on its own spot
     if pos.Has("TRACKPAD-HOME")
         SetCur(pos["TRACKPAD-HOME"])
     else if (lastFree != "" && pos.Has(lastFree))
         SetCur(pos[lastFree])
+    pos[tpDev] := CursorPos()
     try IniWrite(active, INI, "state", "active")
     ownerT := A_TickCount
     p := CursorPos()

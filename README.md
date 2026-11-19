@@ -39,12 +39,12 @@ A trackpad has three profiles. Switch between them from the tray menu, from **ri
 
 | Profile | What the trackpad does |
 |---|---|
-| 1. Default: follow the USB mouse | Acts as the last mouse that has no screen of its own: it shares that mouse's spot and moves it |
+| 1. Separate: trackpad has its own spot | Works like one more free mouse: keeps its own spot, apart from the mice, and goes anywhere. Touch the trackpad and the cursor jumps to the trackpad's spot; touch a mouse and it jumps back to that mouse's spot |
 | 2. Follow the latest mouse | Has no spot of its own: starts wherever the last mouse left the cursor and goes anywhere. It never changes a mouse's spot, so the next mouse you touch (the same one or another) comes back to its own spot |
 | 3. Own screens only | Stays on the screens listed in `trackpadScreens` and keeps its own spot there. Push past the side edge of one screen and it comes in on the next one, even when other screens sit between them |
 
 ### Swap two mice
-Item **4. Swap** in the same menus (or `mouse-zones.ahk /swap`) is an on/off switch: the two mice in `swapA` / `swapB` trade their screens and their spots, and ● shows when it's on. Example: normally the Bluetooth mouse owns the big screen and the USB mouse is free; swapped, the USB mouse owns the big screen and the Bluetooth mouse is free. Trackpad profile 1 follows whichever of the two is free. Ctrl+Alt+M / U are locked while the swap is on.
+Item **4. Swap** in the same menus (or `mouse-zones.ahk /swap`) is an on/off switch: the two mice in `swapA` / `swapB` trade their screens and their spots, and ● shows when it's on. Example: normally the Bluetooth mouse owns the big screen and the USB mouse is free; swapped, the USB mouse owns the big screen and the Bluetooth mouse is free. Ctrl+Alt+M / U are locked while the swap is on.
 ```
 [settings]
 swap=0

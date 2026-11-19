@@ -10,7 +10,7 @@
 ;   1 = the trackpad is the USB mouse (shares its spot)   2 = follows the latest mouse
 ;   3 = stays on its own screens (ini trackpadScreens), crossing from one to the next at the side edge
 ;   5 = Free USB mouse (on/off): the USB mouse (swapB) never has a fixed screen, even with the swap on.
-;       Shortcut: 3 quick right clicks on the USB mouse, or 3 quick two-finger taps on the trackpad.
+;       Shortcut: 3 quick right clicks on the USB mouse.
 ; Assignments are saved in mouse-zones.ini next to this script.
 ; Args: /trackpad1 /trackpad2 /trackpad3 = switch the running copy's profile. /swap, /freeusb = toggle.
 
@@ -141,8 +141,8 @@ OnRawInput(wParam, lParam, msg, hwnd) {
 
     if (follow.Has(dev) && (btn & 1))       ; trackpad left click / tap (RI_MOUSE_LEFT_BUTTON_DOWN)
         CountClick()
-    if ((follow.Has(dev) || dev = swapB) && (btn & 4))   ; right click / two-finger tap (RI_MOUSE_RIGHT_BUTTON_DOWN)
-        CountRightClick(dev)                ; on the trackpad or the USB mouse
+    if (dev = swapB && (btn & 4))           ; USB mouse right click (RI_MOUSE_RIGHT_BUTTON_DOWN)
+        CountRightClick(dev)
 
     if follow.Has(dev) {
         tpDev := dev
@@ -308,8 +308,7 @@ QuadClick() {
     Log("4-click cycle -> step " cycleState)
 }
 
-; 3 right clicks in a row (each within 0.6 s) on the trackpad (two-finger taps) or on the USB mouse:
-; Free USB mouse on/off. (Not left-right-left: that's the normal "right-click, pick an item" move.)
+; 3 right clicks in a row (each within 0.6 s) on the USB mouse: Free USB mouse on/off. (Not left-right-left: that's the normal "right-click, pick an item" move.)
 CountRightClick(dev) {
     static n := 0, t := 0, last := ""
     n := (dev = last && A_TickCount - t < 600) ? n + 1 : 1
@@ -331,7 +330,7 @@ TripleRightClick(dev) {
     if (cls = "#32768" || cls = "Xaml_WindowedPopupClass" || cls = "Microsoft.UI.Content.PopupWindowSiteBridge"
         || cls = "Chrome_WidgetWin_2")
         Send "{Esc}"
-    Log("3 right clicks on " (follow.Has(dev) ? "the trackpad" : "the USB mouse") " (menu under cursor: " (cls = "" ? "-" : cls) ")")
+    Log("3 right clicks on the USB mouse (menu under cursor: " (cls = "" ? "-" : cls) ")")
     ToggleFreeUsb()
 }
 

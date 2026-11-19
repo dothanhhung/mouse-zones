@@ -54,7 +54,7 @@ swapB=<device key of the mouse that is normally free>
 The device keys are the ones written under `[zones]` / `[pos]`.
 
 ### Free USB mouse
-Item **5. Free USB mouse** (or `mouse-zones.ahk /freeusb`) is another on/off switch: the `swapB` mouse never has a fixed screen, whatever else is set. Nothing else changes: with the swap on, both mice are free; with the swap off, the USB mouse was free anyway. Saved as `usbFree=1` under `[settings]`. Turning it off puts the cursor in the middle of the big screen (the USB mouse's screen while swapped, else `swapA`'s).
+Item **5. Free USB mouse** (or `mouse-zones.ahk /freeusb`) is another on/off switch: the `swapB` mouse never has a fixed screen, whatever else is set. Nothing else changes: with the swap on, both mice are free; with the swap off, the USB mouse was free anyway. Saved as `usbFree=1` under `[settings]`. Turning it off puts the cursor in the middle of the big screen (the USB mouse's screen while swapped, else `swapA`'s), unless it is already on that screen: then it stays where it is.
 
 Shortcut: **3 quick right clicks on the USB mouse** (the `swapB` mouse), each within 0.6 s. Each one is still a right click; if the last one left a context menu under the cursor, the script closes it with Esc. (Left-right-left would be a bad shortcut: it's the normal "right-click, pick an item" move.)
 

@@ -104,6 +104,20 @@ global moveHook := CallbackCreate(OnMoveSize, , 7)
 DllCall("SetWinEventHook", "uint", 0x000A, "uint", 0x000B, "ptr", 0, "ptr", moveHook
     , "uint", 0, "uint", 0, "uint", 0, "ptr")   ; MOVESIZESTART..MOVESIZEEND, out of context
 
+; Apps opened from the taskbar / Start on the trackpad screens (3 / 4) open on the launchTo screen
+; (ini, the 27") instead. Only NEW windows (shell hook HSHELL_WINDOWCREATED) within 15 s of that click.
+global launchTo := 0, launchArmT := 0
+global LAUNCH_HOSTS := "^(Shell_SecondaryTrayWnd|Shell_TrayWnd|Windows\.UI\.Core\.CoreWindow|XamlExplorerHostIslandWindow"
+    . "|TopLevelWindowForOverflowXamlIsland|NotifyIconOverflowWindow)$"
+global LAUNCH_SKIP := "i)^(SnippingTool|ScreenClippingHost|ScreenSketch|Zalo\w*)\.exe$"   ; these stay put
+r := StrSplit(IniRead(INI, "settings", "launchTo", ""), ",")
+if r.Length = 4
+    launchTo := [Integer(r[1]), Integer(r[2]), Integer(r[3]), Integer(r[4])]
+if launchTo {
+    DllCall("RegisterShellHookWindow", "ptr", A_ScriptHwnd)
+    OnMessage(DllCall("RegisterWindowMessage", "str", "SHELLHOOK", "uint"), OnShell)
+}
+
 A_IconTip := "Mouse Zones (Ctrl+Alt+M assign, Ctrl+Alt+P pause)"
 Log("start" (A_Args.Length ? " " A_Args[1] : "") "  (" Round(A_TickCount / 1000) " s after Windows started)")
 ; (setup takes well under a second; keep "starting…" readable, then say it's ready)
@@ -141,6 +155,8 @@ OnRawInput(wParam, lParam, msg, hwnd) {
 
     if (follow.Has(dev) && (btn & 1))       ; trackpad left click / tap (RI_MOUSE_LEFT_BUTTON_DOWN)
         CountClick()
+    if (launchTo && (btn & 1))              ; any left click: on the taskbar / Start of screen 3 / 4?
+        LaunchClick()
     if (dev = swapB && (btn & 4))           ; USB mouse right click (RI_MOUSE_RIGHT_BUTTON_DOWN)
         CountRightClick(dev)
 
@@ -735,6 +751,64 @@ SlideToOtherScreen(hwnd, s) {
     DllCall("SetWindowPos", "ptr", hwnd, "ptr", 0
         , "int", NumGet(wr, 0, "int") + nx - r[1], "int", NumGet(wr, 4, "int") + ny - r[2]
         , "int", 0, "int", 0, "uint", 0x15)   ; NOSIZE|NOZORDER|NOACTIVATE
+}
+
+LaunchClick() {
+    global launchArmT
+    p := CursorPos()
+    if !AreaIndex(tpScreens, p)
+        return
+    h := DllCall("WindowFromPoint", "int64", (p[2] << 32) | (p[1] & 0xFFFFFFFF), "ptr")
+    root := DllCall("GetAncestor", "ptr", h, "uint", 2, "ptr")     ; GA_ROOT
+    try cls := WinGetClass("ahk_id " root)
+    catch
+        return
+    if RegExMatch(cls, LAUNCH_HOSTS) {
+        launchArmT := A_TickCount
+        Log("launch click on " cls " at " p[1] "," p[2])
+    }
+}
+
+OnShell(wParam, lParam, *) {
+    if (wParam = 1 && launchArmT && A_TickCount - launchArmT < 15000) {   ; HSHELL_WINDOWCREATED
+        h := lParam
+        SetTimer(() => LaunchMove(h), -300)
+        SetTimer(() => LaunchMove(h), -1500)  ; again: some apps place their window a moment later
+    }
+}
+
+LaunchMove(hwnd) {
+    global launchArmT
+    PMA()
+    try {
+        if !DllCall("IsWindowVisible", "ptr", hwnd)
+            return
+        exe := WinGetProcessName("ahk_id " hwnd)
+    } catch
+        return
+    if RegExMatch(exe, LAUNCH_SKIP)
+        return
+    r := FrameRect(hwnd)
+    if (!r || !AreaIndex(tpScreens, [(r[1] + r[3]) // 2, (r[2] + r[4]) // 2]))
+        return                              ; already on screen 1 / 2
+    m := BestMonitor(launchTo)
+    if !m
+        return
+    MonitorGetWorkArea(m, &aL, &aT, &aR, &aB)
+    try {
+        mx := WinGetMinMax("ahk_id " hwnd)
+        if (mx != 0)
+            WinRestore("ahk_id " hwnd)
+        WinGetPos(, , &w, &h, "ahk_id " hwnd)
+        w := Min(w, aR - aL), h := Min(h, aB - aT)
+        WinMove(aL + (aR - aL - w) // 2, aT + (aB - aT - h) // 2, w, h, "ahk_id " hwnd)
+        if (mx = 1)
+            WinMaximize("ahk_id " hwnd)
+    } catch
+        return
+    if (A_TickCount - launchArmT < 11000)
+        launchArmT := A_TickCount - 11000   ; moved one: keep watching only 4 s more (splash -> main window)
+    Log("launch: moved " exe " to the launchTo screen")
 }
 
 FrameRect(hwnd) {

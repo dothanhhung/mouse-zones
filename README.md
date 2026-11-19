@@ -99,6 +99,13 @@ Your mouse stops at the screen edge, so grab the title bar on the side away from
 
 Windows' own shortcut works too: **Win+Shift+←/→** moves the active window to the next screen.
 
+## Apps opened on the side screens open on the main screen
+With `launchTo` set, an app you open from the taskbar or Start on one of the `trackpadScreens` opens on the `launchTo` screen instead, centred (a maximized window stays maximized). Only new windows that appear on those screens within 15 s of the click are moved; windows of apps that are already open never move. Snipping Tool and Zalo stay where they open (`LAUNCH_SKIP` in the script).
+```
+[settings]
+launchTo=1923,-1072,3843,8
+```
+
 ## How it works
 - `RegisterRawInputDevices` with `RIDEV_INPUTSINK` sends the script every mouse event, along with the handle of the device it came from. Mice are saved by their hardware ID (the `VID/PID` part of `RIDI_DEVICENAME`, without the instance part), so a mouse keeps its screen after a restart, a Bluetooth reconnect or a move to another USB port. Two mice of the exact same model share one setting.
 - When a different mouse moves, the script saves the cursor position for the mouse it is leaving, calls `SetCursorPos` to put the cursor at the new mouse's last spot, and calls `ClipCursor` to keep it inside that mouse's screen. The clip is set again on every event, because Windows drops it on some focus changes.
